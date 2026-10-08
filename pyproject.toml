@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
+    "alembic>=1.20.0",
     "asyncpg>=0.32.0",
     "fastapi[standar,standard]>=0.142.4",
     "pwdlib[argon2]>=0.3.1",
