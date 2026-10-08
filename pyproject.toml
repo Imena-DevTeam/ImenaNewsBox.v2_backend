@@ -1,0 +1,37 @@
+[project]
+name = "imenanewsbox-api"
+version = "0.1.0"
+description = "The API for the Imena News Box project."
+readme = "README.md"
+authors = [
+    { name = "Gurnaud", email = "ishemagurnaud0@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "asyncpg>=0.32.0",
+    "fastapi[standar,standard]>=0.142.4",
+    "pwdlib[argon2]>=0.3.1",
+    "pydantic-settings>=2.15.0",
+    "pyjwt>=2.15.1",
+    "sqlalchemy>=2.1.4",
+    "typing>=3.10.0.0",
+]
+
+[project.scripts]
+imenanewsbox-api = "app.main:main"
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "app"
+module-root = ""
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.10",
+]
