@@ -9,6 +9,7 @@
 *.sqlite3
 
 # Tool caches
+__pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
