@@ -1,0 +1,15 @@
+"""Application entry point: creates the FastAPI app and registers feature routers."""
+
+from fastapi import FastAPI
+
+app = FastAPI(
+    title="Imena NewsBox API",
+    description="Private API for the Imena NewsBox family platform.",
+    version="2.0.0",
+)
+
+
+@app.get("/health", tags=["health"])
+async def health() -> dict[str, str]:
+    """Liveness check for UptimeRobot. Must stay cheap and never touch the database."""
+    return {"status": "ok"}

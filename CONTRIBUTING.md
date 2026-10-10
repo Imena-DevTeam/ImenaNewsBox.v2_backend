@@ -5,6 +5,8 @@ Welcome to the team! This guide walks you through everything you need to go from
 
 **What this repo is:** the backend API for ImenaNewsBox, built with FastAPI, async SQLAlchemy, Alembic and pytest.
 
+**New here?** Read [docs/](docs/README.md) first. It explains the architecture, the business rules, how login works and why we made each design decision. This guide covers the day-to-day workflow.
+
 ---
 
 ## Contents
@@ -62,7 +64,8 @@ Install these once:
 | Tool | Why | Check it works |
 |---|---|---|
 | **Git** | version control | `git --version` |
-| **Python 3.11+** | the language | `python --version` |
+| **Python 3.14** | the language (uv can install it for you) | `python --version` |
+| **Docker Desktop** | runs Postgres locally for development and tests | `docker --version` |
 | **uv** | installs dependencies and runs the project | `uv --version` |
 | **A GitHub account** in our organization | to push branches and open PRs | ask the team lead for an invite |
 
@@ -115,15 +118,15 @@ cp .env.example .env              # macOS / Linux
 Copy-Item .env.example .env       # Windows PowerShell
 ```
 
-Open `.env` and set a real secret key. Generate one with:
+Open `.env` and fill it in. Each comment in `.env.example` explains its variable. Generate `ACCESS_TOKEN_SECRET` and `REFRESH_TOKEN_SECRET` (two different values) with:
 
 ```bash
 uv run python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Paste the output as `SECRET_KEY`. `.env` is git-ignored. Never commit it.
+`.env` is git-ignored. Never commit it.
 
-**Step 3. Create the database tables:**
+**Step 3. Create the database tables** (needs local Postgres running in Docker; the `docker compose` setup and Alembic arrive in an upcoming PR):
 
 ```bash
 uv run alembic upgrade head
@@ -132,7 +135,7 @@ uv run alembic upgrade head
 **Step 4. Run the API:**
 
 ```bash
-uv run fastapi dev app/main.py
+uv run fastapi dev src/app/main.py
 ```
 
 Open http://127.0.0.1:8000/docs to see the interactive API docs. The server reloads automatically when you save a file.
@@ -175,7 +178,7 @@ git switch -c feat/upload-endpoint
 **3. Do the work.** Commit early and often in small, logical pieces ([commit rules](#7-commit-messages)):
 
 ```bash
-git add app/api/routes/uploads.py tests/test_uploads.py
+git add src/app/wishes/router.py src/app/wishes/tests/test_router.py
 git commit -m "feat(uploads): add endpoint to upload an image"
 ```
 
@@ -367,31 +370,38 @@ git push --force-with-lease
 
 ### Folder structure
 
+Code is organized **by feature**. [docs/architecture.md](docs/architecture.md) explains it in full.
+
 ```
-app/
+src/app/
 ├── main.py          # app creation, middleware, routers
-├── core/            # config (settings) and security helpers
-├── db/              # engine, session, Base, get_session dependency
-├── models/          # SQLAlchemy tables (database shape)
-├── schemas/         # Pydantic models (API request/response shape)
-└── api/
-    ├── deps.py      # reusable dependencies (current user, DB session)
-    └── routes/      # one file per resource (auth.py, users.py, ...)
-tests/               # mirrors the app structure
-migrations/          # Alembic migrations (committed to git)
+├── core/            # shared: config, db, security, exceptions, email/Cloudinary/Sanity wrappers
+└── <feature>/       # auth, users, wishes, posts
+    ├── router.py    # endpoints (thin: no business logic)
+    ├── schemas.py   # Pydantic models (API shape)
+    ├── models.py    # SQLAlchemy models (database shape)
+    ├── service.py   # business logic and data access
+    ├── dependencies.py
+    ├── exceptions.py
+    └── tests/
+tests/               # cross-feature and end-to-end tests
+alembic/             # migrations (committed to git)
+scripts/             # one-off scripts
+docs/                # project documentation
 ```
 
-New resource? Add a model, a schema, a router and tests, plus a migration if the database changes.
+New feature work? Fill in the feature's files, register its router in `main.py`, import its models in `alembic/env.py`, add a migration if the database changes, and write tests in its `tests/` folder.
 
 ### Code rules
 
 - **Type hints everywhere.** FastAPI and Pydantic depend on them.
 - **Keep models and schemas separate.** Never return a SQLAlchemy model without a `response_model`, or you risk leaking fields like password hashes.
 - **Use separate input and output schemas** (`UserCreate` vs `UserRead`).
-- **No blocking calls inside `async def`.** Don't use `requests`, `time.sleep` or sync database drivers there. Use `httpx`, `await asyncio.sleep` and async libraries. For unavoidable blocking or CPU-heavy work, use `run_in_threadpool`, and for heavy jobs use a background worker.
+- **No blocking calls inside `async def`.** Don't use `requests`, `time.sleep` or sync database drivers there. Use `httpx`, `await asyncio.sleep` and async libraries. For unavoidable blocking calls (such as the Cloudinary SDK), use `run_in_threadpool`. There are no background workers (free tier), so fire-and-forget work uses FastAPI `BackgroundTasks`.
 - **Use dependency injection** (`Depends`) for the database session, the current user and shared logic.
-- **No hardcoded config.** Everything configurable goes through `app/core/config.py` and environment variables.
-- **Use proper HTTP errors** (`HTTPException` with the right status code), not a 200 with an error message.
+- **No hardcoded config.** Everything configurable goes through `src/app/core/config.py` and environment variables, and every new variable goes into `.env.example`.
+- **Use proper HTTP errors.** Services raise feature exceptions, which `core/exceptions.py` maps to the right status code. Never return a 200 with an error message.
+- **Routers stay thin.** No business logic or database queries in `router.py`; those belong in `service.py`.
 - **Use the `logging` module,** not `print`.
 - **Every endpoint needs tests,** covering the success path and at least the main failure cases (bad input, unauthorized, not found).
 
@@ -410,13 +420,13 @@ New resource? Add a model, a schema, a router and tests, plus a migration if the
 
 We use **Alembic**. Changing a model does *not* change the database until a migration is applied.
 
-When you change a model in `app/models/`:
+When you change a model in a feature's `models.py` (if it's a new `models.py`, import it in `alembic/env.py` first, or autogenerate won't see it):
 
 ```bash
 # 1. generate a migration by comparing models to the database
-uv run alembic revision --autogenerate -m "add video table"
+uv run alembic revision --autogenerate -m "add wishes table"
 
-# 2. OPEN the new file in migrations/versions/ and review it
+# 2. OPEN the new file in alembic/versions/ and review it
 #    (autogenerate can miss things, e.g. a column rename looks like drop + add)
 
 # 3. apply it
