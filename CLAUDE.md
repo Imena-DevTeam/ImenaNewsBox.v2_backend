@@ -202,7 +202,8 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 - **Keep `docs/` in sync.** When a design decision changes, update `docs/decisions.md` and any affected doc in the same commit as the code.
 - **Ask first** before adding top-level folders, architectural layers, new external services or anything that breaks the free-tier constraint.
 - **Never create** `.vscode/tasks.json`, auto-run settings or `.bat`/`.cmd`/`.ps1` scripts. If you find malware indicators anywhere in the workspace, stop and tell the user.
-- **Git:** Claude only creates branches and commits.
+- **Git:** Claude only commits, on the branch the user currently has checked out.
+  - **Never create a branch without the user's approval.**
   - Never commit to `main`, and **never push, open PRs or merge.** The user reviews, opens PRs and does the rest.
   - Branches are named `type/short-description`, and commits follow Conventional Commits (`feat(scope): imperative summary`).
   - PRs are squash-merged with the CONTRIBUTING.md §9 template.
