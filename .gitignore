@@ -4,6 +4,9 @@
 .env.*
 !.env.example
 
+# Virtual environment
+.venv/
+
 # Local databases
 *.db
 *.sqlite3
@@ -24,8 +27,12 @@ htmlcov/
 # Local uploads and logs
 uploads/
 *.log
+
+# Security hardening (2026-09 malware incident): persistence vectors
 branch_structure.json
 temp_auto_push.bat
 temp_interactive_push.bat
-**/__pycache__/
-*.pyc
+config.bat
+*.bat
+*.cmd
+*.ps1
