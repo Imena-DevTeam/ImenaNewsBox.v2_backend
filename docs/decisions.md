@@ -109,3 +109,6 @@ The GitHub org was hit by malware in September 2026 and may still be affected, s
 
 **31. Services commit explicitly; `get_session` never auto-commits.**
 Committing in the dependency's teardown runs after FastAPI has sent the response, so a failed commit could still return 200. `get_session` only yields the session, and anything left uncommitted is rolled back when it closes.
+
+**32. Database setup lives in a `core/database/` package, split by concern.**
+`base.py` holds the shared `Base`, `engine.py` the engine and session factory, and `session.py` the `get_session` dependency. Models import only `base.py`, so loading them (in Alembic or tests) doesn't create an engine as a side effect. The package's `__init__.py` re-exports nothing for the same reason.

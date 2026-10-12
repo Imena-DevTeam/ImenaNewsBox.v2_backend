@@ -27,7 +27,8 @@ Backend API for Imena NewsBox, a private family platform for member profiles, bi
 ```
 src/app/
 ├── main.py              # app factory, middleware (CORS allowlist), router registration
-├── core/                # cross-cutting only: config.py, db.py (engine, session, Base, get_session),
+├── core/                # cross-cutting only: config.py, database/ (base.py: Base, engine.py: engine +
+│                        # SessionLocal, session.py: get_session),
 │                        # security.py, exceptions.py, and thin wrappers for external services:
 │                        # email.py, media.py (Cloudinary), sanity.py
 ├── auth/                # login, email codes, sessions/tokens, current-user, role + ownership deps
@@ -47,12 +48,12 @@ tests/                   # cross-feature / e2e tests
 conftest.py              # shared fixtures; at the repo root so it also applies to src/app/*/tests/
 scripts/                 # one-off operational scripts (v1 import, admin seed), not imported by the app
 docs/                    # human-facing docs: architecture, domain, auth, infrastructure, decision log
-.github/workflows/       # CI (Malware Guard today)
+.github/workflows/       # CI (ruff + pytest) and Malware Guard
 ```
 
 - **No controller layer.** The flow is router → service. Ask before adding a repository layer.
 - **Cross-feature imports:** a feature may import another feature's `service` or `schemas`, never its router internals. Break cycles with `relationship("Model")` strings and `TYPE_CHECKING` imports.
-- **One shared `Base`** lives in `core/db.py`.
+- **One shared `Base`** lives in `core/database/base.py`. Import from the `core/database/` submodules (`base`, `engine`, `session`), not the package, so importing `Base` in a model never creates the engine.
 
 ## Domain and access control
 
@@ -224,7 +225,7 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 ## Current state (not built yet)
 
 The layout, dependencies, tool config, CI, settings and the DB session are in place, but every feature module is still a placeholder. Still missing:
-- **Code:** `core/exceptions.py` and `core/security.py` (`config.py` and `db.py` are done), Alembic (`alembic init -t async alembic`; delete `alembic/.gitkeep` first, because `init` refuses a non-empty folder), and the test fixtures in `conftest.py`.
+- **Code:** `core/exceptions.py` and `core/security.py` (`config.py` and `database/` are done), Alembic (`alembic init -t async alembic`; delete `alembic/.gitkeep` first, because `init` refuses a non-empty folder), and the test fixtures in `conftest.py`.
 - **Infra:** the Alembic steps in CI, `Dockerfile` and `docker-compose.yml`.
 - **Features:** all four (auth, users, wishes, posts), plus `scripts/import_v1.py` and the admin seed.
 - **Tests:** only `tests/test_health.py` exists so far.

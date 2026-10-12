@@ -9,7 +9,10 @@ src/app/
 ├── main.py              # creates the FastAPI app, middleware, registers routers
 ├── core/                # cross-cutting code shared by all features
 │   ├── config.py        # settings from environment variables (pydantic-settings)
-│   ├── db.py            # async engine, session factory, shared Base, get_session
+│   ├── database/        # everything SQLAlchemy needs to talk to Postgres
+│   │   ├── base.py      # the shared declarative Base
+│   │   ├── engine.py    # async engine + session factory (SessionLocal)
+│   │   └── session.py   # get_session dependency
 │   ├── security.py      # JWT, password hashing, hashing of codes and refresh tokens
 │   ├── exceptions.py    # base exceptions + handlers that turn them into HTTP responses
 │   ├── email.py         # the only place that sends email
@@ -68,7 +71,7 @@ There is **no controller layer**. Routers *are* the controllers. If queries ever
 
 - **Imports between features:** a feature may import another feature's `service` or `schemas`, never its `router` or internals. For example, `wishes` can call `users.service` to look up a recipient.
 - **Circular imports:** use string references in relationships (`relationship("User")`) and `if TYPE_CHECKING:` imports for type hints. If two features constantly need each other, they may belong together.
-- **One `Base`:** all models inherit from the single `Base` in `core/db.py`.
+- **One `Base`:** all models inherit from the single `Base` in `core/database/base.py`. Import it with `from app.core.database.base import Base`, not from the `core.database` package, so that loading a model never creates the database engine.
 - **Alembic must see every model:** when you add a `models.py`, import it in `alembic/env.py`, or autogenerate won't notice your tables.
 
 ## Conventions
