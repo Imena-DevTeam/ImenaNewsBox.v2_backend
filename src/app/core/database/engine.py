@@ -1,4 +1,3 @@
-
 from sqlalchemy import async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
@@ -10,11 +9,11 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def get_db_connection():
-     async with SessionLocal as session:
+    async with SessionLocal as session:
         try:
-           yield session
-           await session.commit()
+            yield session
+            await session.commit()
 
         except Exception:
-           await session.rollback()
-           raise
+            await session.rollback()
+            raise
