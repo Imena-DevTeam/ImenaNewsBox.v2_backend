@@ -1,5 +1,6 @@
 
-from sqlalchemy import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import async_sessionmaker, create_async_engine
+
 from app.core.config import get_settings
 
 config = get_settings
@@ -15,5 +16,5 @@ async def get_db_connection():
            await session.commit()
 
         except Exception:
-           await session.rollback();
-           raise 
+           await session.rollback()
+           raise

@@ -1,12 +1,9 @@
 """Application entry point: creates the FastAPI app and registers feature routers."""
 
-from fastapi import FastAPI
 import uvicorn
+from fastapi import FastAPI
+
 from app.core.config import get_settings
-
-
-
-
 
 app = FastAPI()
 
@@ -22,6 +19,12 @@ async def health() -> dict[str, str]:
 config = get_settings()
 
 if __name__ == "__main__":
-    uvicorn.run("src.app.main:app", host=config.app_host, port=config.app_port, reload=True, log_level=config.log_level)
+    uvicorn.run(
+        "src.app.main:app",
+        host=config.app_host,
+        port=config.app_port,
+        reload=True,
+        log_level=config.log_level
+    )
 
-    
+
