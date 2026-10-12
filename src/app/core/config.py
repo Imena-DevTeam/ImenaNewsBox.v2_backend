@@ -1,5 +1,6 @@
 
 from functools import lru_cache
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,7 +11,7 @@ class Settings(BaseSettings):
     database_name: str
     database_password: str
     database_user: str
-    
+
 
     access_token_secret_key: str
     access_token_expire_minutes: int
@@ -32,7 +33,7 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{self.database_user}:{self.database_password}@localhost:5432/{self.database_name}"
 
 
-@lru_cache()   
+@lru_cache
 def get_settings() -> Settings:
     return Settings()
 
@@ -40,5 +41,5 @@ def get_settings() -> Settings:
 
 
 
-    
+
 
