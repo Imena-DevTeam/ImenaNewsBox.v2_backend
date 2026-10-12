@@ -1,0 +1,59 @@
+# Name Of CI WorkFlow
+
+# The pipeline will format all code, lint for errors and run tests before going to production.
+
+name: IMENA CI Pipeline
+
+
+
+# For maintainers this CI script will run every time some one opens a pull request to the "main branch"
+   
+ 
+on:
+   pull_request:
+      branches: [ main ]
+
+ 
+jobs:  
+  
+   validate-and-test:
+       runs-on: ubuntu-latest
+
+       steps:
+            # Download the repository code into the VM.
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+
+            # Install python 3.14
+            - name: Set up Python
+              uses: actions/setup-python@v5
+
+
+            # Install 'uv' please umuntu ufite cya pip ntakore kuri yi ball
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@v5
+              with: 
+                enable-cache: true
+
+            # Install all dependencies remember use uv not pip
+
+            - name: Install dependencies
+              run: |
+                 uv pip install --system -e .
+
+            #  Check code formatting with Ruff 
+
+            - name: Check code formatting with Ruff
+              run: ruff format --check .
+
+            #  Lint code for errors with Ruff
+
+            - name: Lint code using Ruff
+              run: ruff check
+
+            #   Run tests with Pytest
+
+            - name: Run test using Pytest
+              run: pytest    
