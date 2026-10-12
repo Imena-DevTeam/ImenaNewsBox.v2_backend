@@ -47,8 +47,13 @@ alembic/                 # env.py imports every feature's models
 tests/                   # cross-feature / e2e tests
 conftest.py              # shared fixtures; at the repo root so it also applies to src/app/*/tests/
 scripts/                 # one-off operational scripts (v1 import, admin seed), not imported by the app
+<<<<<<< HEAD
 docs/                    # human-facing docs: architecture, domain, auth, infrastructure, decision log
 .github/workflows/       # CI (ruff + pytest) and Malware Guard
+=======
+docs/                    # human-facing docs: architecture, domain, auth, infrastructure, decision log, roadmap
+.github/workflows/       # CI (Malware Guard today)
+>>>>>>> 2f58a18 (docs: add a phased roadmap for the four-developer team)
 ```
 
 - **No controller layer.** The flow is router → service. Ask before adding a repository layer.

@@ -9,6 +9,7 @@ Welcome! These docs explain **what** we're building, **how** the backend is put 
 | 3 | [Authentication](auth.md) | Per-device login, emailed codes, tokens and cookies, step by step |
 | 4 | [Infrastructure](infrastructure.md) | Where everything runs, the free-tier constraints, caching and CI |
 | 5 | [Decisions](decisions.md) | The log of design decisions and the reasoning behind each one |
+| 6 | [Roadmap](roadmap.md) | The project phases, what each of the four developers works on, and what "done" means |
 
 For the day-to-day workflow (setup, branches, commits, PRs), see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
