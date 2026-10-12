@@ -1,59 +1,62 @@
-# Name Of CI WorkFlow
+name: CI
 
-# The pipeline will format all code, lint for errors and run tests before going to production.
+# Lint, format check and tests on every PR to main. Malware Guard runs separately.
 
-name: IMENA CI Pipeline
-
-
-
-# For maintainers this CI script will run every time some one opens a pull request to the "main branch"
-   
- 
 on:
-   pull_request:
-      branches: [ main ]
+  pull_request:
+    branches: [ "main" ]
 
- 
-jobs:  
-  
-   validate-and-test:
-       runs-on: ubuntu-latest
+permissions:
+  contents: read
 
-       steps:
-            # Download the repository code into the VM.
-            - name: Checkout code
-              uses: actions/checkout@v4
+jobs:
+  validate-and-test:
+    name: Lint and test
+    runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: imena
+          POSTGRES_PASSWORD: imena
+          POSTGRES_DB: imena
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U imena"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
-            # Install python 3.14
-            - name: Set up Python
-              uses: actions/setup-python@v5
+    env:
+      ENVIRONMENT: test
+      DATABASE_URL: postgresql+psycopg://imena:imena@localhost:5432/imena
+      DATABASE_URL_DIRECT: postgresql+psycopg://imena:imena@localhost:5432/imena
+      ACCESS_TOKEN_SECRET: ci-access-token-secret-not-used-in-production
+      REFRESH_TOKEN_SECRET: ci-refresh-token-secret-not-used-in-production
 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            # Install 'uv' please umuntu ufite cya pip ntakore kuri yi ball
+      # Installs uv and the Python version from .python-version.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
-            - name: Install uv
-              uses: astral-sh/setup-uv@v5
-              with: 
-                enable-cache: true
+      # Installs the locked runtime and dev dependencies; fails if uv.lock is out of date.
+      - name: Install dependencies
+        run: uv sync --locked
 
-            # Install all dependencies remember use uv not pip
+      - name: Check formatting
+        run: uv run ruff format --check .
 
-            - name: Install dependencies
-              run: |
-                 uv pip install --system -e .
+      - name: Lint
+        run: uv run ruff check .
 
-            #  Check code formatting with Ruff 
+      - name: Run tests
+        run: uv run pytest
 
-            - name: Check code formatting with Ruff
-              run: ruff format --check .
-
-            #  Lint code for errors with Ruff
-
-            - name: Lint code using Ruff
-              run: ruff check
-
-            #   Run tests with Pytest
-
-            - name: Run test using Pytest
-              run: pytest    
+      # TODO: add `uv run alembic upgrade head` and `uv run alembic check` once Alembic is set up.

@@ -27,7 +27,8 @@ Backend API for Imena NewsBox, a private family platform for member profiles, bi
 ```
 src/app/
 ├── main.py              # app factory, middleware (CORS allowlist), router registration
-├── core/                # cross-cutting only: config.py, db.py (engine, session, Base, get_session),
+├── core/                # cross-cutting only: config.py, database/ (base.py: Base, engine.py: engine +
+│                        # SessionLocal, session.py: get_session),
 │                        # security.py, exceptions.py, and thin wrappers for external services:
 │                        # email.py, media.py (Cloudinary), sanity.py
 ├── auth/                # login, email codes, sessions/tokens, current-user, role + ownership deps
@@ -47,12 +48,12 @@ tests/                   # cross-feature / e2e tests
 conftest.py              # shared fixtures; at the repo root so it also applies to src/app/*/tests/
 scripts/                 # one-off operational scripts (v1 import, admin seed), not imported by the app
 docs/                    # human-facing docs: architecture, domain, auth, infrastructure, decision log
-.github/workflows/       # CI (Malware Guard today)
+.github/workflows/       # CI (ruff + pytest) and Malware Guard
 ```
 
 - **No controller layer.** The flow is router → service. Ask before adding a repository layer.
 - **Cross-feature imports:** a feature may import another feature's `service` or `schemas`, never its router internals. Break cycles with `relationship("Model")` strings and `TYPE_CHECKING` imports.
-- **One shared `Base`** lives in `core/db.py`.
+- **One shared `Base`** lives in `core/database/base.py`. Import from the `core/database/` submodules (`base`, `engine`, `session`), not the package, so importing `Base` in a model never creates the engine.
 
 ## Domain and access control
 
@@ -172,7 +173,7 @@ Locally, `docker compose` runs just the API and Postgres.
 4. **Malware Guard**, ported from v1's `.github/workflows/malware-guard.yml`. The GitHub org may still carry the 2026-09 malware. It fails on forbidden persistence files (`.vscode/tasks.json`, `*.bat` push scripts, `branch_structure.json`), VS Code auto-run settings (`runOn`, `folderOpen`, `allowAutomaticTasks`), obfuscated-code markers, and "font" files that are actually scripts.
 5. mypy (optional, not yet required)
 
-Only Malware Guard exists so far (`.github/workflows/malware-guard.yml`).
+Malware Guard (`.github/workflows/malware-guard.yml`) and CI (`.github/workflows/CI.yaml`: steps 1 and 2) exist. Step 3 is added once Alembic is set up.
 
 ## Deployment
 
@@ -223,8 +224,8 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 
 ## Current state (not built yet)
 
-The layout, dependencies, tool config and Malware Guard are in place, but every module is still a placeholder. Still missing:
-- **Code:** `core/` implementations (config, db, exceptions), Alembic (`alembic init -t async alembic`; delete `alembic/.gitkeep` first, because `init` refuses a non-empty folder), and the test fixtures in `conftest.py`.
-- **Infra:** the main CI workflow (ruff, pytest with Postgres, alembic check), `Dockerfile` and `docker-compose.yml`.
+The layout, dependencies, tool config, CI, settings and the DB session are in place, but every feature module is still a placeholder. Still missing:
+- **Code:** `core/exceptions.py` and `core/security.py` (`config.py` and `database/` are done), Alembic (`alembic init -t async alembic`; delete `alembic/.gitkeep` first, because `init` refuses a non-empty folder), and the test fixtures in `conftest.py`.
+- **Infra:** the Alembic steps in CI, `Dockerfile` and `docker-compose.yml`.
 - **Features:** all four (auth, users, wishes, posts), plus `scripts/import_v1.py` and the admin seed.
-- **Tests:** `uv run pytest` currently exits with "no tests ran" (exit code 5), which is expected until the first tests land.
+- **Tests:** only `tests/test_health.py` exists so far.
