@@ -12,4 +12,4 @@ app = FastAPI(title="Imena NewsBox API")
 @app.get("/health", tags=["health"])
 async def health() -> dict[str, str]:
     """Liveness check for UptimeRobot. Must stay cheap and never touch the database."""
-    return {"status": "ok"}
+    return {"status": "ok"}  
