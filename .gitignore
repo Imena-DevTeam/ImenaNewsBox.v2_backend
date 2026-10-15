@@ -29,4 +29,10 @@ uploads/
 *.log
 
 # Security hardening (2026-09 malware incident): persistence vectors
-
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+config.bat
+*.bat
+*.cmd
+*.ps1
