@@ -1,0 +1,22 @@
+# Replace NEWORG with your org and create a team named "security-owners" first
+# (2 vetted owners). With the ruleset "Require review from Code Owners", changes to
+# these paths cannot merge without their approval. This is what stops an attacker
+# from editing the malware guard itself.
+/.github/                @NEWORG/security-owners
+/.github/CODEOWNERS      @NEWORG/security-owners
+/.vscode/                @NEWORG/security-owners
+*.code-workspace         @NEWORG/security-owners
+*.config.js              @NEWORG/security-owners
+*.config.mjs             @NEWORG/security-owners
+*.config.cjs             @NEWORG/security-owners
+*.config.ts              @NEWORG/security-owners
+.eslintrc.js             @NEWORG/security-owners
+package.json             @NEWORG/security-owners
+package-lock.json        @NEWORG/security-owners
+pnpm-lock.yaml           @NEWORG/security-owners
+yarn.lock                @NEWORG/security-owners
+pyproject.toml           @NEWORG/security-owners
+uv.lock                  @NEWORG/security-owners
+Dockerfile               @NEWORG/security-owners
+*.sh                     @NEWORG/security-owners
+*.ps1                    @NEWORG/security-owners
