@@ -27,3 +27,6 @@ htmlcov/
 # Local uploads and logs
 uploads/
 *.log
+
+# Security hardening (2026-09 malware incident): persistence vectors
+
