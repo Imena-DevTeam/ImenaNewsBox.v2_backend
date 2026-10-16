@@ -1,0 +1,3 @@
+# keep Unix line endings so the CI script runs on Linux runners
+.github/** text eol=lf
+*.sh text eol=lf
