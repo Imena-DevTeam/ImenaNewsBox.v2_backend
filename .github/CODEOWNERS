@@ -2,21 +2,21 @@
 # (2 vetted owners). With the ruleset "Require review from Code Owners", changes to
 # these paths cannot merge without their approval. This is what stops an attacker
 # from editing the malware guard itself.
-/.github/                @Imena-DevTeam/security-owners
-/.github/CODEOWNERS      @Imena-DevTeam/security-owners
-/.vscode/                @Imena-DevTeam/security-owners
-*.code-workspace         @Imena-DevTeam/security-owners
-*.config.js              @Imena-DevTeam/security-owners
-*.config.mjs             @Imena-DevTeam/security-owners
-*.config.cjs             @Imena-DevTeam/security-owners
-*.config.ts              @Imena-DevTeam/security-owners
-.eslintrc.js             @Imena-DevTeam/security-owners
-package.json             @Imena-DevTeam/security-owners
-package-lock.json        @Imena-DevTeam/security-owners
-pnpm-lock.yaml           @Imena-DevTeam/security-owners
-yarn.lock                @Imena-DevTeam/security-owners
-pyproject.toml           @Imena-DevTeam/security-owners
-uv.lock                  @Imena-DevTeam/security-owners
-Dockerfile               @Imena-DevTeam/security-owners
-*.sh                     @Imena-DevTeam/security-owners
-*.ps1                    @Imena-DevTeam/security-owners
+/.github/                @Imena-DevTeam/security-team
+/.github/CODEOWNERS      @Imena-DevTeam/security-team
+/.vscode/                @Imena-DevTeam/security-team
+*.code-workspace         @Imena-DevTeam/security-team
+*.config.js              @Imena-DevTeam/security-team
+*.config.mjs             @Imena-DevTeam/security-team
+*.config.cjs             @Imena-DevTeam/security-team
+*.config.ts              @Imena-DevTeam/security-team
+.eslintrc.js             @Imena-DevTeam/security-team
+package.json             @Imena-DevTeam/security-team
+package-lock.json        @Imena-DevTeam/security-team
+pnpm-lock.yaml           @Imena-DevTeam/security-team
+yarn.lock                @Imena-DevTeam/security-team
+pyproject.toml           @Imena-DevTeam/security-team
+uv.lock                  @Imena-DevTeam/security-team
+Dockerfile               @Imena-DevTeam/security-team
+*.sh                     @Imena-DevTeam/security-team
+*.ps1                    @Imena-DevTeam/security-team
