@@ -25,8 +25,8 @@ async def get_session() -> AsyncIterator[AsyncSession]:
             raise
 
 
-
 DbSession = Annotated[AsyncSession, Depends(get_session)]
+
 
 async def dispose_engine() -> None:
     await engine.dispose()
