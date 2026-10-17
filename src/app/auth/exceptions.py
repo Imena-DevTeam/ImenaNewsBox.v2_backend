@@ -3,23 +3,31 @@
 from fastapi import HTTPException, status
 
 
-
 class InvalidFamilyName(HTTPException):
-
     def __init__(self) -> None:
-        super.__init__(status.HTTP_401_UNAUTHORIZED, "Invalid family name.", headers={"WWW-Authenticate": "Bearer"})
-
+        super.__init__(
+            status.HTTP_401_UNAUTHORIZED,
+            "Invalid family name.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 class NotAuthenticated(HTTPException):
     def __init__(self) -> None:
-        super.__init__(status.HTTP_401_UNAUTHORIZED, "You have not been authenticated nigga.", headers={"WWW-Authenticate": "Bearer"})
+        super.__init__(
+            status.HTTP_401_UNAUTHORIZED,
+            "You have not been authenticated nigga.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 class InvalidToken(HTTPException):
     def __init__(self) -> None:
-        super.__init__(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token", headers={"WWW-Authenticate": "Bearer"})
-
+        super.__init__(
+            status.HTTP_401_UNAUTHORIZED,
+            "Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 class InvalidOtpError(HTTPException):
@@ -34,6 +42,4 @@ class OAuthTokenError(HTTPException):
 
 class ForbiddenOriginError(HTTPException):
     def __init__(self) -> None:
-        super().__init__(status.HTTP_403_FORBIDDEN, "Origin not allowed")        
-
-
+        super().__init__(status.HTTP_403_FORBIDDEN, "Origin not allowed")
