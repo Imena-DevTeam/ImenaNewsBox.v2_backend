@@ -37,7 +37,11 @@ class InvalidOtpError(HTTPException):
 
 class OAuthTokenError(HTTPException):
     def __init__(self) -> None:
-        super().__init__(status.HTTP_401_UNAUTHORIZED, "Google sign-in failed")
+        super().__init__(
+            status.HTTP_401_UNAUTHORIZED,
+            "Google sign-in failed",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 class ForbiddenOriginError(HTTPException):
