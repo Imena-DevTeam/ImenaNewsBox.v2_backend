@@ -1,0 +1,109 @@
+# Shared by the whole team and committed to git.
+# Every developer supplies their own POSTGRES_USER / POSTGRES_PASSWORD /
+# POSTGRES_DB (and all other secrets) in an uncommitted .env file
+# (copy .env.example to .env). The schema is shared through the Alembic
+# migration files in git, not through the database.
+#
+# Usage:
+#   docker compose up -d --build                    # db -> migrations -> api
+#   docker compose run --rm migrate alembic revision --autogenerate -m "message"
+#   docker compose --profile test up -d db_test     # throwaway test database
+#   docker compose down                             # stop, keep data
+#   docker compose down -v                          # stop and wipe your local DB
+
+x-api-build: &api-build
+  context: .
+  target: prod
+
+# Inside the compose network the database host is the service name "db" and the
+# port is always 5432. These override the localhost URLs in .env, which are only
+# meant for running the API or Alembic outside Docker.
+# Locally there is no Neon pooler, so the pooled and direct URLs are the same.
+x-api-env: &api-env
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}
+  DATABASE_URL_DIRECT: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+
+services:
+  # ---- Your own local PostgreSQL (isolated per developer machine) ----
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+    ports:
+      # Host port is configurable so it doesn't clash with a native Postgres.
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ---- One-off job: applies the migrations committed in git ----
+  # Runs after the DB is healthy and exits. The API waits for it to succeed.
+  # Alembic uses DATABASE_URL_DIRECT (see api-env above).
+  migrate:
+    build: *api-build
+    command: ["alembic", "upgrade", "head"]
+    env_file: .env
+    environment: *api-env
+    volumes:
+      # New migration files created in the container land in your working tree
+      # (so you can commit them), and autogenerate sees your current models.
+      - ./alembic:/app/alembic
+      - ./src:/app/src
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # ---- FastAPI application ----
+  api:
+    build: *api-build
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "src"]
+    # All app settings (auth secrets, CORS, email, Sanity, Cloudinary, ...)
+    # come from .env; the database URLs below override its localhost values.
+    env_file: .env
+    environment: *api-env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Live code reload for development.
+      - ./src:/app/src
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # Assumes the API exposes GET /health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ---- Separate, disposable database for running tests ----
+  # Only starts with: docker compose --profile test up -d db_test
+  # Data lives in memory (tmpfs), so it is wiped on every restart.
+  db_test:
+    profiles: ["test"]
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}_test
+    ports:
+      - "${DB_TEST_PORT:-5433}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
