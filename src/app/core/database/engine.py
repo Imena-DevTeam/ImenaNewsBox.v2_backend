@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
 
-
 config = get_settings()
 
 # pool_pre_ping: Neon scales to zero and drops idle connections, so check before reuse.

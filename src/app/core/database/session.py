@@ -1,11 +1,12 @@
 """The `get_session` FastAPI dependency."""
 
 from collections.abc import AsyncIterator
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database.engine import SessionLocal, engine
-from fastapi import Depends
 from typing import Annotated
 
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database.engine import SessionLocal, engine
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
@@ -19,10 +20,10 @@ async def get_session() -> AsyncIterator[AsyncSession]:
             yield session
             await session.commit()
 
-        except Exception: 
-            await session.rollback();
+        except Exception:
+            await session.rollback()
             raise
-               
+
 
 
 DbSession = Annotated[AsyncSession, Depends(get_session)]
