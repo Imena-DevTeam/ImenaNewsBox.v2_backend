@@ -68,7 +68,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
 - **Users are created only by admins.** There's no self-signup. The first admin is created by a seed command, never through a public endpoint.
 - **Users table:** profile fields live on `users`, with no separate profile table. It holds at least:
   - family name (**unique**, case-insensitive, used to log in)
-  - email and `email_verified_at` (nullable)
+  - email (**unique**, case-insensitive) and `email_verified_at` (nullable)
   - `sub_family_id` and `promotion_id`, which reference the fixed lookup tables `sub_families` and `promotions` (promotion is optional)
   - role, `password_hash` (admins only), display name, birthday, profile photo (Cloudinary public ID / URL)
   - `deactivated_at`

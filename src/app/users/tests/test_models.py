@@ -103,11 +103,25 @@ async def test_family_name_lookup_is_case_insensitive(
     assert found is user
 
 
-async def test_relatives_may_share_an_email(make_user: MakeUser) -> None:
-    first = await make_user(email="family@example.test")
-    second = await make_user(email="family@example.test")
+@pytest.mark.parametrize("duplicate", ["keza@example.test", "Keza@Example.TEST"])
+async def test_emails_are_unique_ignoring_case(
+    db_session: AsyncSession, make_user: MakeUser, duplicate: str
+) -> None:
+    await make_user(email="keza@example.test")
 
-    assert first.id != second.id
+    with pytest.raises(IntegrityError, match="uq_users_email_lower"):
+        async with db_session.begin_nested():
+            await make_user(email=duplicate)
+
+
+async def test_deactivated_users_keep_their_email(
+    db_session: AsyncSession, make_user: MakeUser
+) -> None:
+    await make_user(email="gone@example.test", deactivated_at=datetime.now(UTC))
+
+    with pytest.raises(IntegrityError, match="uq_users_email_lower"):
+        async with db_session.begin_nested():
+            await make_user(email="gone@example.test")
 
 
 async def test_a_sub_family_is_required(db_session: AsyncSession, make_user: MakeUser) -> None:

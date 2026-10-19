@@ -93,10 +93,17 @@ def upgrade() -> None:
         [sa.literal_column("lower(family_name)")],
         unique=True,
     )
+    op.create_index(
+        "uq_users_email_lower",
+        "users",
+        [sa.literal_column("lower(email)")],
+        unique=True,
+    )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.drop_index("uq_users_email_lower", table_name="users")
     op.drop_index("uq_users_family_name_lower", table_name="users")
     op.drop_index(op.f("ix_users_sub_family_id"), table_name="users")
     op.drop_index(op.f("ix_users_promotion_id"), table_name="users")

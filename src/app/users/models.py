@@ -62,7 +62,7 @@ class User(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid7)
     family_name: Mapped[str] = mapped_column(String(FAMILY_NAME_MAX_LENGTH))
     display_name: Mapped[str] = mapped_column(String(DISPLAY_NAME_MAX_LENGTH))
-    # Not unique: relatives may share an address. Login is by family name.
+    # Unique ignoring case (see the index below), so a code always reaches one account.
     email: Mapped[str] = mapped_column(String(EMAIL_MAX_LENGTH))
     email_verified_at: Mapped[datetime | None]
     birthday: Mapped[date | None]
@@ -105,3 +105,5 @@ class User(TimestampMixin, Base):
 # Case-insensitive uniqueness, also covering deactivated users (their name stays reserved).
 # Login looks users up by `lower(family_name)`, which uses this index.
 Index("uq_users_family_name_lower", func.lower(User.family_name), unique=True)
+# One account per address, ignoring case. Deactivated users keep theirs reserved too.
+Index("uq_users_email_lower", func.lower(User.email), unique=True)

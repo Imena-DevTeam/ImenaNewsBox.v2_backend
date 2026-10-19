@@ -155,8 +155,8 @@ Routers get the email sender, media store and Sanity client through `Depends`, a
 **46. User IDs are UUIDv7, and roles are stored as text with a check constraint.**
 UUIDs don't reveal how many members there are or let anyone guess other IDs, and version 7 is time-ordered, so new rows land at the end of the primary key index (Python 3.14 generates them; Postgres 17 has no built-in v7). Roles are a `VARCHAR` column with a `CHECK` constraint instead of a Postgres enum type, because adding or renaming a value is then an ordinary migration. Code compares roles only with `Role.at_least()`: a `StrEnum` compares alphabetically, so `"admin" < "member"`.
 
-**47. Family names are unique ignoring case; emails aren't unique.**
-A unique index on `lower(family_name)` stops "Mugisha" and "mugisha" from both existing, including when one is deactivated, and login looks names up through the same index. Relatives (for example a parent and a child) may share an email address, and login is by family name, so emails have no unique constraint. The sub-family is required and the promotion optional; both lookup tables stay empty until the lists are agreed, and tests create their own rows.
+**47. Family names and emails are both unique, ignoring case.**
+Unique indexes on `lower(family_name)` and `lower(email)` stop "Mugisha" and "mugisha" (or two spellings of one address) from both existing, including when one belongs to a deactivated user, and lookups use the same indexes. Unique emails mean a login or confirmation code always reaches exactly one account, so every member needs their own address. The sub-family is required and the promotion optional; both lookup tables stay empty until the lists are agreed, and tests create their own rows.
 
 **48. Relationships never lazy-load.**
 In async SQLAlchemy a lazy load inside a request fails with a confusing error. Every relationship uses `lazy="raise"`, so a missing `selectinload` fails loudly in tests instead.
