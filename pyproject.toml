@@ -75,3 +75,8 @@ python_version = "3.14"
 strict = true
 plugins = ["pydantic.mypy"]
 mypy_path = "src"
+
+[[tool.mypy.overrides]]
+# The Cloudinary SDK ships no type hints; only core/media.py (and its tests) import it.
+module = ["cloudinary", "cloudinary.*"]
+ignore_missing_imports = true
