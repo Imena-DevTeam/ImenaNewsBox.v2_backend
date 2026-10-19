@@ -36,6 +36,7 @@ jobs:
       TEST_DATABASE_URL: postgresql+psycopg://imena:imena@localhost:5432/imena_test
       ACCESS_TOKEN_SECRET: ci-access-token-secret-not-used-in-production
       REFRESH_TOKEN_SECRET: ci-refresh-token-secret-not-used-in-production
+      CODE_SECRET: ci-code-secret-not-used-in-production
 
     steps:
       - name: Checkout
