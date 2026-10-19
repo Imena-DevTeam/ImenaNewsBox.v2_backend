@@ -126,10 +126,12 @@ uv run python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 `.env` is git-ignored. Never commit it.
 
-**Step 3. Create the database tables** (needs local Postgres running in Docker; the `docker compose` setup and Alembic arrive in an upcoming PR):
+**Step 3. Start Postgres and create the tables.** Start Docker Desktop first.
 
 ```bash
-uv run alembic upgrade head
+docker compose up -d db                        # your local development database
+uv run alembic upgrade head                    # create the tables
+docker compose --profile test up -d db_test    # a throwaway database for the tests
 ```
 
 **Step 4. Run the API:**
@@ -145,6 +147,8 @@ Open http://127.0.0.1:8000/docs to see the interactive API docs. The server relo
 ```bash
 uv run pytest
 ```
+
+Tests use `TEST_DATABASE_URL` (the `db_test` container). Each run wipes and re-migrates that database, so it must be a database whose name ends in `_test`; the tests refuse to run against anything else. Each test runs inside a transaction that is rolled back, so tests never see each other's data.
 
 If all tests pass, you're ready. If something fails on a fresh clone, tell the team. That's a bug in our setup, not in you.
 

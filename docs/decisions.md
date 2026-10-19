@@ -115,3 +115,12 @@ Committing in the dependency's teardown runs after FastAPI has sent the response
 
 **33. CI runs strict mypy, a wider ruff rule set and an import check on every PR.**
 Two early auth PRs passed CI while crashing at runtime: `super.__init__` without parentheses, a column default of `func.now` instead of `func.now()`, and `SecretStr` secrets passed straight to PyJWT. Ruff's original rules (`E, W, F, I, UP, B, ASYNC, SIM`) don't check calls or types, mypy wasn't in CI, and no test imported the broken modules. So mypy (strict) is now a required CI step, ruff also selects `PLE`, `PLW` and `RUF`, and `tests/test_imports.py` imports every module under `src/app`. This was previously planned for after launch; it moved forward because it would have caught most of those bugs.
+
+**34. Tests reset a dedicated `_test` database and roll back every test.**
+Once per run, the fixtures drop and re-create the test database's `public` schema and migrate it to head, so the tests always exercise the real migrations. Each test then runs inside one outer transaction that is rolled back, and the session joins it with savepoints (`join_transaction_mode="create_savepoint"`), so services can `commit()` as they would in production. Because the schema is wiped, the fixtures refuse any `TEST_DATABASE_URL` whose database name doesn't end in `_test`.
+
+**35. A naming convention on `Base.metadata`.**
+Indexes and constraints get explicit names (`ix_…`, `uq_…`, `fk_…`, `pk_…`, `ck_…`) instead of names Postgres generates. Migrations are then the same on every machine, and later migrations can drop or rename a constraint by a name they know.
+
+**36. A selector event loop on Windows.**
+psycopg's async mode can't use Windows' default asyncio event loop. Most of the team develops on Windows, so `alembic/env.py` and the pytest loop use `asyncio.SelectorEventLoop` there. Linux (CI and Render) is unaffected.
