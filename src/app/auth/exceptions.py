@@ -1,6 +1,6 @@
 """Exceptions raised by this feature."""
 
-from app.core.exceptions import Forbidden, TooManyRequests, Unauthorized
+from app.core.exceptions import Conflict, Forbidden, TooManyRequests, Unauthorized
 
 
 class NotAuthenticated(Unauthorized):
@@ -55,3 +55,12 @@ class InvalidCredentials(Unauthorized):
 
     code = "invalid_credentials"
     default_message = "The family name or password is wrong."
+
+
+class RefreshConflict(Conflict):
+    """The previous refresh token came back just after it was replaced: almost always a
+    second tab that refreshed at the same moment. The browser already has the new cookie,
+    so retrying the refresh works."""
+
+    code = "refresh_conflict"
+    default_message = "This device refreshed its login a moment ago. Try again."

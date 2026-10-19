@@ -3,11 +3,25 @@
 from collections.abc import Awaitable, Callable
 from http.cookies import Morsel, SimpleCookie
 
-from httpx import Response
+from httpx import AsyncClient, Response
 
 from app.auth.router import REFRESH_COOKIE
 
+FRONTEND = "https://imena.example"
 RequestCode = Callable[..., Awaitable[str]]
+SignIn = Callable[..., Awaitable[str]]
+
+
+async def post_with_cookie(
+    client: AsyncClient, path: str, refresh_token: str | None, *, origin: str | None = FRONTEND
+) -> Response:
+    """POST the way the browser does on our site: the refresh cookie plus our Origin."""
+    headers = {}
+    if refresh_token is not None:
+        headers["Cookie"] = f"{REFRESH_COOKIE}={refresh_token}"
+    if origin is not None:
+        headers["Origin"] = origin
+    return await client.post(path, headers=headers)
 
 
 def refresh_cookie(response: Response) -> Morsel[str] | None:

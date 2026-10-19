@@ -2,9 +2,11 @@
 
 from typing import Annotated, Final
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Cookie, Depends, Request, Response
 
 from app.auth import service
+from app.auth.dependencies import require_allowed_origin
+from app.auth.exceptions import NotAuthenticated
 from app.auth.schemas import AccessToken, CodeSent, LoginRequest, VerifyRequest
 from app.core.config import get_settings
 from app.core.database.session import DbSession
@@ -19,6 +21,8 @@ REFRESH_COOKIE: Final = "refresh_token"
 # `main.py` mounts this router under /api/v1, so the browser sends the cookie to the auth
 # routes only. There's no `Domain`, so it stays bound to the frontend's host (the proxy).
 REFRESH_COOKIE_PATH: Final = "/api/v1/auth"
+# The parameter name is the cookie name, so routes must call it `refresh_token`.
+RefreshCookie = Annotated[str | None, Cookie()]
 
 
 def _signed_in(response: Response, signed_in: service.SignedIn) -> AccessToken:
@@ -61,3 +65,16 @@ async def verify(
         device_label=service.describe_device(request.headers.get("user-agent")),
     )
     return _signed_in(response, signed_in)
+
+
+@router.post("/refresh", dependencies=[Depends(require_allowed_origin)])
+async def refresh(
+    response: Response, db: DbSession, refresh_token: RefreshCookie = None
+) -> AccessToken:
+    """A new access token for this device, from the refresh cookie (which rotates).
+
+    On 409 `refresh_conflict`, another tab refreshed at the same moment: retry once.
+    """
+    if refresh_token is None:
+        raise NotAuthenticated()
+    return _signed_in(response, await service.refresh_session(db, refresh_token))

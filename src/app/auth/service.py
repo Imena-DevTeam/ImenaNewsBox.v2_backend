@@ -1,13 +1,21 @@
 """Business logic and data access."""
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.exceptions import CodeRecentlySent, InvalidCode, InvalidCredentials, TooManyCodes
+from app.auth.exceptions import (
+    CodeRecentlySent,
+    InvalidCode,
+    InvalidCredentials,
+    RefreshConflict,
+    SessionEnded,
+    TooManyCodes,
+)
 from app.auth.models import DEVICE_LABEL_MAX_LENGTH, EmailCode, UserSession
 from app.core.config import get_settings
 from app.core.email import CodePurpose, EmailSender, send_code
@@ -23,6 +31,11 @@ from app.core.security import (
 )
 from app.users.models import Role, User
 
+logger = logging.getLogger(__name__)
+
+# How long the token a refresh replaced still gets a "retry" answer instead of revoking the
+# session. Long enough for a slow phone, short enough to be useless to a thief.
+REFRESH_GRACE: Final = timedelta(seconds=30)
 CODE_RESEND_COOLDOWN: Final = timedelta(seconds=60)
 CODE_MAX_ATTEMPTS: Final = 5
 # Caps guessing: 10 codes x 5 attempts is 50 guesses a day out of a million possible codes.
@@ -207,6 +220,61 @@ async def verify_login(
     signed_in = await start_session(db, user, device_label=device_label)
     await db.commit()
     return signed_in
+
+
+# --- Refreshing ---
+
+
+async def refresh_session(db: AsyncSession, refresh_token: str) -> SignedIn:
+    """Swap a refresh token for a new access token and a new refresh token. Commits.
+
+    The token rotates on every use and the session's 90 days start again. If the token it
+    replaced comes back within `REFRESH_GRACE`, that's a second tab refreshing at the same
+    moment, so the caller gets `RefreshConflict` and retries with the new cookie. If it comes
+    back later, someone else has a copy, so the whole session is revoked.
+    """
+    now = datetime.now(UTC)
+    token_hash = hash_refresh_token(refresh_token)
+    row = (
+        await db.execute(
+            select(UserSession, User)
+            .join(User, UserSession.user_id == User.id)
+            .where(
+                or_(
+                    UserSession.token_hash == token_hash,
+                    UserSession.previous_token_hash == token_hash,
+                )
+            )
+            # Locked, so two refreshes of one session run one after the other.
+            .with_for_update(of=UserSession)
+            .execution_options(populate_existing=True)
+        )
+    ).first()
+    if row is None:
+        raise SessionEnded()
+    session, user = row
+    if session.revoked_at is not None or session.expires_at <= now or not user.is_active:
+        raise SessionEnded()
+
+    if session.token_hash != token_hash:
+        if session.rotated_at is not None and now - session.rotated_at <= REFRESH_GRACE:
+            raise RefreshConflict()
+        session.revoked_at = now
+        await db.commit()
+        logger.warning("A replaced refresh token was reused, so session %s was revoked", session.id)
+        raise SessionEnded()
+
+    new_token = generate_refresh_token()
+    session.previous_token_hash = session.token_hash
+    session.token_hash = hash_refresh_token(new_token)
+    session.rotated_at = now
+    session.last_used_at = now
+    session.expires_at = now + timedelta(seconds=get_settings().refresh_token_expires_in)
+    access_token, expires_at = create_access_token(user.id, session.id, now=now)
+    await db.commit()
+    return SignedIn(
+        access_token=access_token, access_expires_at=expires_at, refresh_token=new_token
+    )
 
 
 # --- Device labels ---

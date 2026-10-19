@@ -60,6 +60,21 @@ Body: `{"family_name": "...", "code": "123456"}`. Spaces around the code are ign
 
 Every way of logging in ends in `start_session` (`auth/service.py`), which creates the session and the tokens, so Google sign-in will behave exactly the same from that point on.
 
+### `POST /refresh` — a new access token
+
+No body. The browser sends the refresh cookie by itself, and the request must carry our `Origin` (see [Why the Vercel proxy](#why-the-vercel-proxy)).
+
+| Situation | Response |
+|---|---|
+| the current refresh token | 200 with a new access token, and a **new** refresh cookie; the session's 90 days start again |
+| the token this one replaced, **within 30 seconds** of the replacement | 409 `refresh_conflict`: another tab refreshed at the same moment. **Retry once**: the browser already has the new cookie |
+| the replaced token, **later than that** | 401 `session_ended`, and the whole session is revoked: someone else has a copy of the token |
+| no cookie | 401 `not_authenticated` |
+| unknown token, revoked or expired session, deactivated user | 401 `session_ended` |
+| missing or foreign `Origin` | 403 `origin_not_allowed` |
+
+> **Frontend:** when a call returns 401 `token_expired`, call `/refresh` once and retry the call. On 409, retry the refresh after a short pause. On any other refresh error, send the user to the login page. Make concurrent calls share one refresh rather than each starting its own.
+
 ## Tokens
 
 | | Access token | Refresh token |
@@ -73,7 +88,7 @@ Every way of logging in ends in `start_session` (`auth/service.py`), which creat
 
 **How refresh works:**
 - When the access token expires, the frontend calls the refresh endpoint. The browser sends the cookie, and the API returns a new access token **and a new refresh token**: it **rotates** on every use.
-- If an *old* refresh token is ever reused (a sign it was stolen), that whole session is revoked.
+- If an *old* refresh token is reused more than 30 seconds after it was replaced (a sign it was stolen), that whole session is revoked. Within those 30 seconds it gets a "retry" answer instead, because two tabs refreshing at once is normal.
 - Each refresh token is stored only as a **hash** in a `user_sessions` row, together with the user, a device label (from the browser's user agent), the creation and last-used times, and a revoked flag.
 - Users can see their own sessions ("devices") and sign any of them out. Admins can revoke anyone's sessions, and deactivating a user revokes all of them.
 
