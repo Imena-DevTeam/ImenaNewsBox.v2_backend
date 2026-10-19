@@ -1,6 +1,6 @@
 """Exceptions raised by this feature."""
 
-from app.core.exceptions import Forbidden, Unauthorized
+from app.core.exceptions import Forbidden, TooManyRequests, Unauthorized
 
 
 class NotAuthenticated(Unauthorized):
@@ -31,3 +31,20 @@ class OriginNotAllowed(Forbidden):
 
     code = "origin_not_allowed"
     default_message = "This request must come from the Imena NewsBox website."
+
+
+class InvalidCode(Unauthorized):
+    """Wrong, used, expired or out of attempts: one error, so a guesser learns nothing."""
+
+    code = "invalid_code"
+    default_message = "That code is wrong, used or expired. Check it, or ask for a new one."
+
+
+class CodeRecentlySent(TooManyRequests):
+    code = "code_recently_sent"
+    default_message = "A code was sent less than a minute ago. Check your inbox first."
+
+
+class TooManyCodes(TooManyRequests):
+    code = "too_many_codes"
+    default_message = "Too many codes were requested in the last 24 hours. Try again later."

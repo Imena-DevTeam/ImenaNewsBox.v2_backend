@@ -4,12 +4,28 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import DEVICE_LABEL_MAX_LENGTH, UserSession
+from app.auth.exceptions import CodeRecentlySent, InvalidCode, TooManyCodes
+from app.auth.models import DEVICE_LABEL_MAX_LENGTH, EmailCode, UserSession
 from app.core.config import get_settings
-from app.core.security import generate_refresh_token, hash_refresh_token
+from app.core.email import CodePurpose, EmailSender, send_code
+from app.core.security import (
+    CODE_TTL,
+    generate_code,
+    generate_refresh_token,
+    hash_code,
+    hash_refresh_token,
+    verify_code,
+)
 from app.users.models import User
+
+CODE_RESEND_COOLDOWN: Final = timedelta(seconds=60)
+CODE_MAX_ATTEMPTS: Final = 5
+# Caps guessing: 10 codes x 5 attempts is 50 guesses a day out of a million possible codes.
+# It also stops one person's inbox (and our email quota) from being flooded.
+CODES_PER_DAY: Final = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +48,88 @@ async def create_session(db: AsyncSession, user: User, *, device_label: str) -> 
     db.add(session)
     await db.flush()
     return NewSession(session=session, refresh_token=refresh_token)
+
+
+# --- Emailed codes ---
+
+
+async def issue_code(
+    db: AsyncSession, sender: EmailSender, user: User, purpose: CodePurpose, *, to: str
+) -> None:
+    """Create a code and email it to `to`. Commits.
+
+    Allows one code per minute and `CODES_PER_DAY` per user and purpose. Only the newest code
+    works, so a new one replaces any earlier one. If the email can't be sent, the code is
+    deleted again, so the user can retry straight away.
+    """
+    now = datetime.now(UTC)
+    # Lock the user's row, so two requests at once can't both get past the limits below.
+    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
+    recent = list(
+        await db.scalars(
+            select(EmailCode.created_at)
+            .where(
+                EmailCode.user_id == user.id,
+                EmailCode.purpose == purpose,
+                EmailCode.created_at > now - timedelta(days=1),
+            )
+            .order_by(EmailCode.created_at.desc())
+        )
+    )
+    if recent and now - recent[0] < CODE_RESEND_COOLDOWN:
+        raise CodeRecentlySent()
+    if len(recent) >= CODES_PER_DAY:
+        raise TooManyCodes()
+
+    code = generate_code()
+    row = EmailCode(
+        user_id=user.id,
+        purpose=purpose,
+        code_hash=hash_code(code),
+        created_at=now,
+        expires_at=now + CODE_TTL,
+    )
+    db.add(row)
+    # Commit before sending, so no lock is held while the provider responds. A request that
+    # arrives meanwhile sees this code and gets the cooldown error.
+    await db.commit()
+    try:
+        await send_code(sender, to=to, code=code, purpose=purpose)
+    except Exception:
+        await db.delete(row)
+        await db.commit()
+        raise
+
+
+async def consume_code(db: AsyncSession, user: User, purpose: CodePurpose, code: str) -> None:
+    """Check `code` against the user's newest code for `purpose`, and mark it used.
+
+    Raises `InvalidCode` if it's wrong, used, expired or out of attempts. A wrong guess is
+    counted and committed straight away; a match is only flushed, for the caller to commit.
+    """
+    now = datetime.now(UTC)
+    latest = await db.scalar(
+        select(EmailCode)
+        .where(EmailCode.user_id == user.id, EmailCode.purpose == purpose)
+        .order_by(EmailCode.created_at.desc(), EmailCode.id.desc())
+        .limit(1)
+        # Locked, so two requests can't both use the code or both spend the same attempt.
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        latest is None
+        or latest.consumed_at is not None
+        or latest.expires_at <= now
+        or latest.attempts >= CODE_MAX_ATTEMPTS
+    ):
+        raise InvalidCode()
+    if not verify_code(code, latest.code_hash):
+        latest.attempts += 1
+        await db.commit()
+        raise InvalidCode()
+    latest.consumed_at = now
+    await db.flush()
 
 
 # --- Device labels ---

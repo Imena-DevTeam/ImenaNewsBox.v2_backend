@@ -167,3 +167,6 @@ The access token carries the session ID (`sid`), and the current-user lookup joi
 **50. Sessions keep the previous refresh token's hash.**
 On rotation the old hash moves to `previous_token_hash` (with `rotated_at`), so a reused token can be told apart from a random one. The login flow uses it to give two tabs refreshing at once a short grace window, and to revoke the session when an old token turns up later.
 
+
+**51. Code limits live in Postgres: one code a minute, ten a day, only the newest works.**
+There's no Redis, so the limits are counted from `email_codes` rows. Five attempts per code alone would let someone guess 300 times an hour by asking for a new code every minute; capping codes at ten per user per 24 hours limits that to 50 guesses a day (out of a million) and protects inboxes and the email quota. The cost is that someone spamming a member's family name can block that member's code logins for up to a day; the flood of emails also tells the member something is wrong. Issuing locks the user's row and commits before sending, so concurrent requests can't slip past the limits and no lock is held during the email call. A code that couldn't be sent is deleted, so the user can retry at once.

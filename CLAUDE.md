@@ -95,7 +95,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - Users can list and revoke their own sessions, and admins can revoke anyone's. Knowing a family name is never enough on its own to get tokens.
   - **Every authenticated request loads the user from the DB** in one query (by primary key, joined to the token's session), and rejects deactivated users and revoked or expired sessions. Role comes from the DB row, not the token. **Never cache this lookup**, so deactivation, session revocation and role changes take effect immediately.
 - **Email verification:**
-  - Codes are 6 digits, expire after 10 minutes, are single-use and stored hashed, and allow 5 attempts with a 60-second resend cooldown.
+  - Codes are 6 digits, expire after 10 minutes, are single-use and stored hashed, and allow 5 attempts with a 60-second resend cooldown and at most 10 codes per user and purpose in 24 hours. Only the newest code works. Use `issue_code` / `consume_code` in `auth/service.py` for every purpose.
   - Throttling is stored in Postgres, not Redis.
   - The first successful code sets `email_verified_at`. When an admin changes a user's email, `email_verified_at` is cleared and a code is sent to the new address. The user confirms it with an authenticated endpoint.
 - **Wishes** have a sender, a **recipient** and the birthday year, and are kept as history; there's no purge.
