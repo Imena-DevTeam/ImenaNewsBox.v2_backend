@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # Database: pooled URL for the app, direct URL for Alembic.
     database_url: str
     database_url_direct: str
+    # Only read by the test suite. Its name must end in `_test`, because tests reset its schema.
+    test_database_url: str = ""
 
     # Auth tokens. Lifetimes are in seconds.
     access_token_secret: SecretStr

@@ -141,7 +141,9 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
 - List endpoints paginate consistently (`page`, `limit`, with a capped limit).
 - Use `logging`, never `print`. Never log request bodies, codes, tokens or emails.
 - **Tests:**
-  - Co-locate them in `<feature>/tests/` and run against real Postgres (never SQLite) with per-test transaction rollback via root `conftest.py` fixtures.
+  - Co-locate them in `<feature>/tests/` and run against real Postgres (never SQLite) with per-test transaction rollback via root `conftest.py` fixtures: `db_session` (services may `commit()`; it only releases a savepoint) and `client` (an `httpx.AsyncClient` whose requests use that session).
+  - The test database is `TEST_DATABASE_URL` (the compose `db_test` service, port 5433). Each run drops and re-migrates its schema, so its name must end in `_test`.
+  - On Windows, psycopg's async mode needs a selector event loop. `alembic/env.py` and `conftest.py` already handle that.
   - Mock email, Sanity and Cloudinary at the `core/` wrapper boundary.
   - Every endpoint needs tests for success, auth, role and ownership denial, and its main failure cases.
 
@@ -170,9 +172,9 @@ Locally, `docker compose` runs just the API and Postgres.
 1. `ruff check .` and `ruff format --check .`
 2. `mypy src` (strict)
 3. `pytest` against a Postgres service container, including `tests/test_imports.py`, which imports every module under `src/app` so import-time crashes fail CI
-4. `alembic upgrade head` on a fresh DB, then `alembic check`
+4. `alembic upgrade head` on a fresh DB, then `alembic check` (runs before pytest)
 5. **Malware Guard**, ported from v1's `.github/workflows/malware-guard.yml`. The GitHub org may still carry the 2026-09 malware. It fails on forbidden persistence files (`.vscode/tasks.json`, `*.bat` push scripts, `branch_structure.json`), VS Code auto-run settings (`runOn`, `folderOpen`, `allowAutomaticTasks`), obfuscated-code markers, and "font" files that are actually scripts.
-Malware Guard (`.github/workflows/malware-guard.yml`) and CI (`.github/workflows/CI.yaml`: steps 1–3) exist. Step 4 is added once Alembic is set up.
+Malware Guard (`.github/workflows/malware-guard.yml`) and CI (`.github/workflows/CI.yaml`: steps 1–4) exist.
 
 ## Deployment
 
@@ -224,7 +226,6 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 ## Current state (not built yet)
 
 The layout, dependencies, tool config, CI, settings and the DB session are in place, but every feature module is still a placeholder. Still missing:
-- **Code:** `core/exceptions.py` and `core/security.py` (`config.py` and `database/` are done), Alembic (`alembic init -t async alembic`; delete `alembic/.gitkeep` first, because `init` refuses a non-empty folder), and the test fixtures in `conftest.py`.
-- **Infra:** the Alembic steps in CI, `Dockerfile` and `docker-compose.yml`.
+- **Done:** `config.py`, `database/`, Alembic (async `env.py`, no migrations yet), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile` and `docker-compose.yml`.
+- **Code:** `core/exceptions.py`, `core/security.py`, and the `core/` service wrappers (`email.py`, `media.py`, `sanity.py`).
 - **Features:** all four (auth, users, wishes, posts), plus `scripts/import_v1.py` and the admin seed.
-- **Tests:** only `tests/test_health.py` exists so far.

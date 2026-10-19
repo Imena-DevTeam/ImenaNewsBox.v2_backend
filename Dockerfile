@@ -1,10 +1,10 @@
 # Keep this in sync with .python-version
-ARG PYTHON_VERSION=3.12
+ARG PYTHON_VERSION=3.14
 
 # ---- build stage: install dependencies into a virtualenv ----
 FROM python:${PYTHON_VERSION}-slim AS build
-# Pin this to the uv version your team uses (check with: uv --version)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# Pinned so builds are reproducible. Bump it deliberately (check yours with: uv --version).
+COPY --from=ghcr.io/astral-sh/uv:0.11.31 /uv /uvx /bin/
 ENV UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
@@ -34,4 +34,7 @@ COPY ./src ./src
 USER appuser
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Migrations run on start: the free plan has one instance and no pre-deploy step. Alembic uses
+# DATABASE_URL_DIRECT. --proxy-headers reads the client IP and scheme from Render's proxy, the
+# only way traffic reaches the container.
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'"]
