@@ -132,7 +132,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
 ## Conventions
 
 - `schemas.py` holds Pydantic models and `models.py` holds SQLAlchemy models; never mix them. Always set `response_model` so fields such as `password_hash` never leak.
-- Use SQLAlchemy 2.0 typed style (`Mapped[...]`, `mapped_column`) and full type hints. Name tables in plural snake_case. Enforce uniqueness with DB constraints (e.g. a unique index on `lower(family_name)`), not check-then-insert.
+- Use SQLAlchemy 2.0 typed style (`Mapped[...]`, `mapped_column`) and full type hints. Every `datetime` column is `timestamptz`, primary keys of user-facing tables are UUIDv7 (`default=uuid.uuid7`), `TimestampMixin` adds `created_at`/`updated_at`, and relationships use `lazy="raise"` (load them explicitly with `selectinload`). Enums are stored as `VARCHAR` + a check constraint (`native_enum=False`), not Postgres enum types. New migrations are ruff-formatted by an Alembic hook. Name tables in plural snake_case. Enforce uniqueness with DB constraints (e.g. a unique index on `lower(family_name)`), not check-then-insert.
 - **Alembic must see every model:** import each feature's `models.py` in `alembic/env.py`. Generate and review a migration for every model change, ship it in the same PR, and never edit a merged migration. Seed the fixed lookup lists through migrations.
 - **Neon:** the app uses the **pooled** connection URL (`DATABASE_URL`), and Alembic uses the **direct** URL (`DATABASE_URL_DIRECT`). Neon scales to zero, so the first query after an idle period is slower.
 - **No blocking calls in `async def`.** Use async DB and `httpx` (for Sanity and the email provider), and wrap the sync Cloudinary SDK with `run_in_threadpool`.
@@ -145,6 +145,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - Co-locate them in `<feature>/tests/` and run against real Postgres (never SQLite) with per-test transaction rollback via root `conftest.py` fixtures: `db_session` (services may `commit()`; it only releases a savepoint) and `client` (an `httpx.AsyncClient` whose requests use that session).
   - The test database is `TEST_DATABASE_URL` (the compose `db_test` service, port 5433). Each run drops and re-migrates its schema, so its name must end in `_test`.
   - On Windows, psycopg's async mode needs a selector event loop. `alembic/env.py` and `conftest.py` already handle that.
+  - Users: `await make_user(role=Role.ADMIN, password="...", **fields)` creates a user with unique defaults in a fresh `sub_family`. Annotate it as `Callable[..., Awaitable[User]]`.
   - Email, Sanity and Cloudinary are faked at the `core/` wrapper boundary (`core/fakes.py`). The `client` fixture always installs the fakes; request `fake_email`, `fake_media` or `fake_sanity` to inspect or script them (e.g. `fake_email.last_code(address)`, `fake_email.failures_left = 2`).
   - Services take the wrapper as a parameter, and routers get it with `Depends(get_email_sender)`, `Depends(get_media_store)` or `Depends(get_sanity)`.
   - Every endpoint needs tests for success, auth, role and ownership denial, and its main failure cases.
@@ -228,6 +229,6 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 ## Current state (not built yet)
 
 The layout, dependencies, tool config, CI, settings and the DB session are in place, but every feature module is still a placeholder. Still missing:
-- **Done:** `config.py`, `database/`, Alembic (async `env.py`, no migrations yet), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, the `core/` wrappers (`email.py` with no provider yet, `media.py`, `sanity.py`) and their fakes, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
+- **Done:** `config.py`, `database/`, Alembic (async `env.py`; first migration: `users`, `sub_families`, `promotions`), `users/models.py` (`Role`, `User`, `SubFamily`, `Promotion`; the lookup lists are still empty), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, the `core/` wrappers (`email.py` with no provider yet, `media.py`, `sanity.py`) and their fakes, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
 - **Code:** the real email provider (gated) and the Sanity webhook check (with posts).
-- **Features:** all four (auth, users, wishes, posts), plus `scripts/import_v1.py` and the admin seed.
+- **Features:** all four (auth, users, wishes, posts) beyond the users model, plus `scripts/import_v1.py` and the admin seed.

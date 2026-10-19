@@ -10,7 +10,8 @@ nothing leaks between tests.
 
 import asyncio
 import sys
-from collections.abc import AsyncIterator, Callable, Mapping
+import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +29,9 @@ from app.core.email import get_email_sender
 from app.core.fakes import FakeEmailSender, FakeMediaStore, FakeSanity
 from app.core.media import get_media_store
 from app.core.sanity import get_sanity
+from app.core.security import hash_password
 from app.main import app
+from app.users.models import Role, SubFamily, User
 
 if sys.platform == "win32":
     # psycopg's async mode can't run on Windows' default (Proactor) event loop.
@@ -91,6 +94,45 @@ async def db_session(db_connection: AsyncConnection) -> AsyncIterator[AsyncSessi
     )
     yield session
     await session.close()
+
+
+@pytest.fixture
+async def sub_family(db_session: AsyncSession) -> SubFamily:
+    """A sub-family row. The real list is seeded by a later migration; tests make their own."""
+    row = SubFamily(name=f"Test sub-family {uuid.uuid4().hex[:8]}")
+    db_session.add(row)
+    await db_session.flush()
+    return row
+
+
+@pytest.fixture
+def make_user(db_session: AsyncSession, sub_family: SubFamily) -> Callable[..., Awaitable[User]]:
+    """A factory: `await make_user(role=Role.ADMIN, password="...", display_name="...")`.
+
+    Every field has a unique default, so tests only set what they care about. A password is
+    only hashed when given, because hashing is slow.
+    """
+
+    async def _make_user(
+        *, role: Role = Role.MEMBER, password: str | None = None, **fields: Any
+    ) -> User:
+        suffix = uuid.uuid4().hex[:8]
+        values: dict[str, Any] = {
+            "family_name": f"Family{suffix}",
+            "display_name": f"Member {suffix}",
+            "email": f"member-{suffix}@example.test",
+            "sub_family_id": sub_family.id,
+            "role": role,
+        }
+        if password is not None:
+            values["password_hash"] = await hash_password(password)
+        values.update(fields)
+        user = User(**values)
+        db_session.add(user)
+        await db_session.flush()
+        return user
+
+    return _make_user
 
 
 @pytest.fixture

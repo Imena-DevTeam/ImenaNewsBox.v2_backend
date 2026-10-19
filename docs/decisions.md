@@ -152,3 +152,12 @@ The format comes from the file's first bytes, not its name or content type: JPEG
 **45. External service wrappers are injected dependencies, with fakes in `core/fakes.py`.**
 Routers get the email sender, media store and Sanity client through `Depends`, and the test `client` fixture replaces all three with in-memory fakes, so no test can reach a real service. The fakes live in `src/app/core/fakes.py` so feature tests can import their types under strict mypy. The real Sanity client opens a short-lived `httpx` client per call: posts are cached, so calls are rare, and there's no connection pool to manage.
 
+**46. User IDs are UUIDv7, and roles are stored as text with a check constraint.**
+UUIDs don't reveal how many members there are or let anyone guess other IDs, and version 7 is time-ordered, so new rows land at the end of the primary key index (Python 3.14 generates them; Postgres 17 has no built-in v7). Roles are a `VARCHAR` column with a `CHECK` constraint instead of a Postgres enum type, because adding or renaming a value is then an ordinary migration. Code compares roles only with `Role.at_least()`: a `StrEnum` compares alphabetically, so `"admin" < "member"`.
+
+**47. Family names are unique ignoring case; emails aren't unique.**
+A unique index on `lower(family_name)` stops "Mugisha" and "mugisha" from both existing, including when one is deactivated, and login looks names up through the same index. Relatives (for example a parent and a child) may share an email address, and login is by family name, so emails have no unique constraint. The sub-family is required and the promotion optional; both lookup tables stay empty until the lists are agreed, and tests create their own rows.
+
+**48. Relationships never lazy-load.**
+In async SQLAlchemy a lazy load inside a request fails with a confusing error. Every relationship uses `lazy="raise"`, so a missing `selectinload` fails loudly in tests instead.
+
