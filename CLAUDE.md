@@ -18,6 +18,7 @@ Backend API for Imena NewsBox, a private family platform for member profiles, bi
 - External services:
   - **Sanity CMS:** everything blog-related, including its images. Called through its HTTP API with `httpx`; there's no official Python SDK. The PyPI package named `sanity` is unrelated, so never add it.
   - **Cloudinary:** profile photos only, using the official `cloudinary` SDK.
+  - **Google sign-in:** `core/google.py` checks Google ID tokens with PyJWT (`pyjwt[crypto]`) against Google's public keys, fetched with `httpx`. No Google SDK. `GOOGLE_CLIENT_ID` is the frontend button's client ID; empty turns Google sign-in off.
   - **Email:** Resend or the Gmail API, not chosen yet (see "Open decisions"). Either way it goes over HTTPS with `httpx`, behind `core/email.py`. No SDK, and never SMTP.
 - pytest + pytest-asyncio + httpx; ruff; mypy
 - Docker, deployed as a single **Render free** web service
@@ -126,6 +127,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - The whole posts cache is cleared after every successful post write and on the Sanity webhook.
   - This works because the free plan runs one instance. Moving to multiple instances would need a shared cache.
 - **Postgres data is not cached** (users, wishes, sessions, the current user). The queries are cheap at family scale, and stale or cross-user data is the bigger risk.
+- **The one other cache:** Google's public signing keys, kept in memory by `core/google.py` for as long as Google's `Cache-Control` allows. They're public keys, not user data.
 - **Every response sends `Cache-Control: private, no-store`,** so Vercel's proxy or edge can never cache member data. `NoStoreMiddleware` in `main.py` sets it on every response and overwrites any value a route sets, so never try to send `public` or `s-maxage`.
 - **Frontend (Next.js) rule, for reference:** only per-user client caching (TanStack Query, SWR, router cache), plus static or ISR rendering for the public landing page. No shared Next or Vercel caching of anything behind a login.
 
@@ -148,8 +150,8 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - Users: `await make_user(role=Role.ADMIN, password="...", **fields)` creates a user with unique defaults in a fresh `sub_family`. Annotate it as `Callable[..., Awaitable[User]]`.
   - Auth: `headers = await login_as(user)` starts a real session and returns its `Authorization` header. Annotate it as `Callable[[User], Awaitable[dict[str, str]]]`.
   - Auth endpoint tests (`auth/tests/`): `conftest.py` makes `FRONTEND` the only allowed origin, `request_code(user)` and `sign_in(user)` go through the real endpoints, and `helpers.py` has `post_with_cookie` and `refresh_cookie`. The test client uses `http://`, so its cookie jar never sends the `Secure` refresh cookie: pass it explicitly.
-  - Email, Sanity and Cloudinary are faked at the `core/` wrapper boundary (`core/fakes.py`). The `client` fixture always installs the fakes; request `fake_email`, `fake_media` or `fake_sanity` to inspect or script them (e.g. `fake_email.last_code(address)`, `fake_email.failures_left = 2`).
-  - Services take the wrapper as a parameter, and routers get it with `Depends(get_email_sender)`, `Depends(get_media_store)` or `Depends(get_sanity)`.
+  - Email, Sanity, Cloudinary and Google are faked at the `core/` wrapper boundary (`core/fakes.py`). The `client` fixture always installs the fakes; request `fake_email`, `fake_media`, `fake_sanity` or `fake_google` to inspect or script them (e.g. `fake_email.last_code(address)`, `fake_email.failures_left = 2`, `fake_google.token_for(email)`). The real Google checks are tested in `core/tests/test_google.py` with a test RSA key.
+  - Services take the wrapper as a parameter, and routers get it with `Depends(get_email_sender)`, `Depends(get_media_store)`, `Depends(get_sanity)` or `Depends(get_google_verifier)`.
   - Every endpoint needs tests for success, auth, role and ownership denial, and its main failure cases.
 
 ## Commands

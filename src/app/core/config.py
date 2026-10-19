@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     access_token_expires_in: int = 900
     refresh_token_expires_in: int = 7_776_000
 
+    # Google sign-in: the OAuth client ID of the frontend's "Sign in with Google" button.
+    # Public (it's in the frontend too), so not a secret. Empty turns Google sign-in off.
+    google_client_id: str = ""
+
     # First admin (seed script only)
     first_admin_family_name: str = ""
     first_admin_email: str = ""
