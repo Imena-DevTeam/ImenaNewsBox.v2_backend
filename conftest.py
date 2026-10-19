@@ -23,13 +23,14 @@ from sqlalchemy import create_engine, make_url, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.auth.service import create_session
 from app.core.config import get_settings
 from app.core.database.session import get_session
 from app.core.email import get_email_sender
 from app.core.fakes import FakeEmailSender, FakeMediaStore, FakeSanity
 from app.core.media import get_media_store
 from app.core.sanity import get_sanity
-from app.core.security import hash_password
+from app.core.security import create_access_token, hash_password
 from app.main import app
 from app.users.models import Role, SubFamily, User
 
@@ -133,6 +134,19 @@ def make_user(db_session: AsyncSession, sub_family: SubFamily) -> Callable[..., 
         return user
 
     return _make_user
+
+
+@pytest.fixture
+def login_as(db_session: AsyncSession) -> Callable[[User], Awaitable[dict[str, str]]]:
+    """Start a real session for a user and return its `Authorization` header:
+    `headers = await login_as(await make_user(role=Role.ADMIN))`."""
+
+    async def _login_as(user: User) -> dict[str, str]:
+        new = await create_session(db_session, user, device_label="pytest")
+        token, _ = create_access_token(user.id, new.session.id)
+        return {"Authorization": f"Bearer {token}"}
+
+    return _login_as
 
 
 @pytest.fixture

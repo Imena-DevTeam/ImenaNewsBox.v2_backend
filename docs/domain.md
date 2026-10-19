@@ -29,7 +29,7 @@ Users can change **their own** resources. Admins can change anything. One reusab
 
 ### Every request re-checks the user
 
-The access token says *who* you are, but on every request the backend loads your user row from the database (one quick primary-key lookup). Your **role** and whether you're **deactivated** come from the database, not from the token. That way, deactivating someone or changing their role takes effect **immediately**, not when their token expires. This lookup is deliberately **never cached**.
+The access token says *who* you are, but on every request the backend loads your user row from the database, together with the session that issued the token (one quick query). Your **role** and whether you're **deactivated** come from the database, not from the token. That way, deactivating someone, signing out one of their devices or changing their role takes effect **immediately**, not when their token expires. This lookup is deliberately **never cached**.
 
 ### Who sees what
 

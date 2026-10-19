@@ -161,3 +161,9 @@ Unique indexes on `lower(family_name)` and `lower(email)` stop "Mugisha" and "mu
 **48. Relationships never lazy-load.**
 In async SQLAlchemy a lazy load inside a request fails with a confusing error. Every relationship uses `lazy="raise"`, so a missing `selectinload` fails loudly in tests instead.
 
+**49. Each request checks the session as well as the user, in the same single query.**
+The access token carries the session ID (`sid`), and the current-user lookup joins `users` to `user_sessions`. A request fails if the user is deactivated or the session is revoked or expired. Signing out a device therefore takes effect on its next request, not up to 15 minutes later when its access token would expire, and it still costs one indexed query. All three cases return the same `session_ended` error, so a caller can't tell a deactivated account from a signed-out device.
+
+**50. Sessions keep the previous refresh token's hash.**
+On rotation the old hash moves to `previous_token_hash` (with `rotated_at`), so a reused token can be told apart from a random one. The login flow uses it to give two tabs refreshing at once a short grace window, and to revoke the session when an old token turns up later.
+
