@@ -18,7 +18,8 @@ src/app/
 │   ├── pagination.py    # page/limit query parameters and the Page[T] response
 │   ├── email.py         # the only place that sends email
 │   ├── media.py         # Cloudinary wrapper (profile photos)
-│   └── sanity.py        # Sanity HTTP API client (blog posts)
+│   ├── sanity.py        # Sanity HTTP API client (blog posts)
+│   └── fakes.py         # in-memory fakes of email, media and sanity, for tests only
 ├── auth/                # login, codes, sessions/tokens, role + ownership checks
 ├── users/               # users (incl. profile fields), sub-families, promotions, admin management
 ├── wishes/              # birthday wishes and upcoming birthdays

@@ -33,6 +33,7 @@ from app.core.exceptions import Unauthorized
 JWT_ALGORITHM: Final = "HS256"
 ACCESS_TOKEN_TYPE: Final = "access"
 CODE_LENGTH: Final = 6
+CODE_TTL: Final = timedelta(minutes=10)
 REFRESH_TOKEN_BYTES: Final = 32
 
 _password_hash = PasswordHash((Argon2Hasher(),))

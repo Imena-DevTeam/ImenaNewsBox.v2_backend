@@ -12,6 +12,7 @@ import asyncio
 import sys
 from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
+from typing import Any
 
 import pytest
 from alembic import command
@@ -23,6 +24,10 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.core.database.session import get_session
+from app.core.email import get_email_sender
+from app.core.fakes import FakeEmailSender, FakeMediaStore, FakeSanity
+from app.core.media import get_media_store
+from app.core.sanity import get_sanity
 from app.main import app
 
 if sys.platform == "win32":
@@ -89,13 +94,41 @@ async def db_session(db_connection: AsyncConnection) -> AsyncIterator[AsyncSessi
 
 
 @pytest.fixture
-async def client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
-    """An HTTP client for the app, with every request using the test's session."""
+def fake_email() -> FakeEmailSender:
+    return FakeEmailSender()
+
+
+@pytest.fixture
+def fake_media() -> FakeMediaStore:
+    return FakeMediaStore()
+
+
+@pytest.fixture
+def fake_sanity() -> FakeSanity:
+    return FakeSanity()
+
+
+@pytest.fixture
+async def client(
+    db_session: AsyncSession,
+    fake_email: FakeEmailSender,
+    fake_media: FakeMediaStore,
+    fake_sanity: FakeSanity,
+) -> AsyncIterator[AsyncClient]:
+    """An HTTP client for the app. Every request uses the test's session and the fakes above,
+    so no test reaches a real email provider, Cloudinary or Sanity."""
 
     async def _get_test_session() -> AsyncIterator[AsyncSession]:
         yield db_session
 
-    app.dependency_overrides[get_session] = _get_test_session
+    overrides: dict[Callable[..., Any], Callable[..., Any]] = {
+        get_session: _get_test_session,
+        get_email_sender: lambda: fake_email,
+        get_media_store: lambda: fake_media,
+        get_sanity: lambda: fake_sanity,
+    }
+    app.dependency_overrides.update(overrides)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
         yield http
-    app.dependency_overrides.pop(get_session, None)
+    for dependency in overrides:
+        app.dependency_overrides.pop(dependency, None)

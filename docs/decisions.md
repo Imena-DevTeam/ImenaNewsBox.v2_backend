@@ -143,3 +143,12 @@ A 6-digit code has only a million possible values, so a plain SHA-256 could be r
 **42. Access tokens carry a session ID, and expired tokens get their own error code.**
 Access tokens hold the user ID and the ID of the session that issued them (so "this device" can be marked in the sessions list), never the role. An expired token returns `token_expired` and any other bad token `invalid_token`, so the frontend knows when to refresh and when to log out. Password hashing runs in a worker thread because Argon2 is deliberately slow, and verifying against a missing hash still spends the same time, so response times don't reveal which family names exist.
 
+**43. Code emails: 5-second timeout, one retry, and a clear error without a provider.**
+Each send attempt gets 5 seconds, and a failed or timed-out attempt is retried once, so the worst case is about 10 seconds before the user sees `email_not_sent` (503) and can resend. A provider only implements `send(message)`; building the message and the retry are shared. Until a provider is chosen, sending fails with `email_not_configured` (503) rather than silently doing nothing, and codes are never written to logs as a stand-in.
+
+**44. Profile photos are checked by content and stored small.**
+The format comes from the file's first bytes, not its name or content type: JPEG, PNG, WebP or HEIC, up to 5 MB. Cloudinary stores each photo as a JPEG of at most 1024px a side (HEIC doesn't display in most browsers, and small files stay well inside the free plan), under `imena-newsbox/<environment>/profile-photos`, so development uploads never mix with production. Credentials are passed on each SDK call instead of through its global config.
+
+**45. External service wrappers are injected dependencies, with fakes in `core/fakes.py`.**
+Routers get the email sender, media store and Sanity client through `Depends`, and the test `client` fixture replaces all three with in-memory fakes, so no test can reach a real service. The fakes live in `src/app/core/fakes.py` so feature tests can import their types under strict mypy. The real Sanity client opens a short-lived `httpx` client per call: posts are cached, so calls are rare, and there's no connection pool to manage.
+

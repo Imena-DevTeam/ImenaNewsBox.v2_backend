@@ -30,7 +30,7 @@ src/app/
 ├── core/                # cross-cutting only: config.py, database/ (base.py: Base, engine.py: engine +
 │                        # SessionLocal, session.py: get_session),
 │                        # security.py, exceptions.py, pagination.py, and thin wrappers for external services:
-│                        # email.py, media.py (Cloudinary), sanity.py
+│                        # email.py, media.py (Cloudinary), sanity.py, plus fakes.py (test doubles)
 ├── auth/                # login, email codes, sessions/tokens, current-user, role + ownership deps
 ├── users/               # users (profile fields included), sub-families, promotions, admin user management
 ├── wishes/              # birthday wishes (sender → recipient), upcoming birthdays
@@ -145,7 +145,8 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - Co-locate them in `<feature>/tests/` and run against real Postgres (never SQLite) with per-test transaction rollback via root `conftest.py` fixtures: `db_session` (services may `commit()`; it only releases a savepoint) and `client` (an `httpx.AsyncClient` whose requests use that session).
   - The test database is `TEST_DATABASE_URL` (the compose `db_test` service, port 5433). Each run drops and re-migrates its schema, so its name must end in `_test`.
   - On Windows, psycopg's async mode needs a selector event loop. `alembic/env.py` and `conftest.py` already handle that.
-  - Mock email, Sanity and Cloudinary at the `core/` wrapper boundary.
+  - Email, Sanity and Cloudinary are faked at the `core/` wrapper boundary (`core/fakes.py`). The `client` fixture always installs the fakes; request `fake_email`, `fake_media` or `fake_sanity` to inspect or script them (e.g. `fake_email.last_code(address)`, `fake_email.failures_left = 2`).
+  - Services take the wrapper as a parameter, and routers get it with `Depends(get_email_sender)`, `Depends(get_media_store)` or `Depends(get_sanity)`.
   - Every endpoint needs tests for success, auth, role and ownership denial, and its main failure cases.
 
 ## Commands
@@ -227,6 +228,6 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 ## Current state (not built yet)
 
 The layout, dependencies, tool config, CI, settings and the DB session are in place, but every feature module is still a placeholder. Still missing:
-- **Done:** `config.py`, `database/`, Alembic (async `env.py`, no migrations yet), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
-- **Code:** the `core/` service wrappers (`email.py`, `media.py`, `sanity.py`).
+- **Done:** `config.py`, `database/`, Alembic (async `env.py`, no migrations yet), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, the `core/` wrappers (`email.py` with no provider yet, `media.py`, `sanity.py`) and their fakes, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
+- **Code:** the real email provider (gated) and the Sanity webhook check (with posts).
 - **Features:** all four (auth, users, wishes, posts), plus `scripts/import_v1.py` and the admin seed.
