@@ -61,6 +61,7 @@ sequenceDiagram
 | 401 | `session_ended` | that device was signed out, its session expired, or the user was deactivated (deliberately not saying which) | log in |
 | 403 | `insufficient_role` | logged in, but the role is too low | show "not allowed" |
 | 403 | `not_owner` | logged in, but it's someone else's resource | show "not allowed" |
+| 403 | `origin_not_allowed` | a refresh or logout request had no `Origin` header, or one not in `CORS_ORIGINS` | nothing: it means the request didn't come from our site (or the deploy's `CORS_ORIGINS` is wrong) |
 
 ## Emailed codes
 
@@ -79,7 +80,7 @@ The frontend runs on Vercel and the API on Render, which are **different sites**
 
 **What this means for the backend:**
 - **Cookie attributes:** the refresh cookie is `HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth` with **no `Domain` attribute**, so it binds to the frontend's host.
-- **Origin check:** refresh and logout also check the request's `Origin` against the allowed frontend origins (`CORS_ORIGINS`), as extra protection against cross-site request forgery.
+- **Origin check:** refresh and logout also check the request's `Origin` against the allowed frontend origins (`CORS_ORIGINS`), as extra protection against cross-site request forgery (`require_allowed_origin` in `auth/dependencies.py`). A request **without** an `Origin` header is refused: browsers always send one on a POST, so only non-browser clients lack it, and those (Postman, scripts) must set it themselves.
 - **CORS** mostly matters for local development. It always lists explicit origins, never `*`.
 - **Client IP:** requests reach us through two proxies, so the real IP and user agent come from forwarded headers. IP is never the only thing we throttle on.
 

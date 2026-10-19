@@ -18,12 +18,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 
-from app.auth.exceptions import InsufficientRole, NotAuthenticated, NotOwner, SessionEnded
+from app.auth.exceptions import (
+    InsufficientRole,
+    NotAuthenticated,
+    NotOwner,
+    OriginNotAllowed,
+    SessionEnded,
+)
 from app.auth.models import UserSession
+from app.core.config import Settings, get_settings
 from app.core.database.session import DbSession
 from app.core.security import decode_access_token
 from app.users.models import Role, User
@@ -85,6 +92,21 @@ def require_role(minimum: Role) -> Callable[..., Awaitable[User]]:
         return user
 
     return dependency
+
+
+def require_allowed_origin(
+    request: Request, settings: Annotated[Settings, Depends(get_settings)]
+) -> None:
+    """For routes authenticated by the refresh cookie (refresh and logout).
+
+    The browser attaches the cookie on its own, so the request's `Origin` must be one of our
+    frontends (`CORS_ORIGINS`). That blocks cross-site request forgery even if `SameSite`
+    fails. Browsers always send `Origin` on a POST; a request without one is refused.
+    """
+    origin = request.headers.get("origin")
+    allowed = {allowed.rstrip("/") for allowed in settings.cors_origins}
+    if origin is None or origin not in allowed:
+        raise OriginNotAllowed()
 
 
 def require_owner_or_admin(user: User, owner_id: uuid.UUID, *, allow_admin: bool = True) -> None:

@@ -24,3 +24,10 @@ class InsufficientRole(Forbidden):
 class NotOwner(Forbidden):
     code = "not_owner"
     default_message = "You can only change your own things."
+
+
+class OriginNotAllowed(Forbidden):
+    """A cookie-authenticated request (refresh or logout) came from a page that isn't ours."""
+
+    code = "origin_not_allowed"
+    default_message = "This request must come from the Imena NewsBox website."
