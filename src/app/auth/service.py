@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Final
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,3 +32,43 @@ async def create_session(db: AsyncSession, user: User, *, device_label: str) -> 
     db.add(session)
     await db.flush()
     return NewSession(session=session, refresh_token=refresh_token)
+
+
+# --- Device labels ---
+
+# First match wins, so more specific tokens come first (Edge and Opera also say "Chrome", and
+# every Chromium browser also says "Safari").
+_BROWSERS: Final = (
+    ("Edg", "Edge"),
+    ("OPR/", "Opera"),
+    ("SamsungBrowser/", "Samsung Internet"),
+    ("Firefox/", "Firefox"),
+    ("FxiOS/", "Firefox"),
+    ("CriOS/", "Chrome"),
+    ("Chrome/", "Chrome"),
+    ("Safari/", "Safari"),
+)
+_SYSTEMS: Final = (
+    ("iPhone", "iPhone"),
+    ("iPad", "iPad"),
+    ("Android", "Android"),
+    ("Windows", "Windows"),
+    ("CrOS", "ChromeOS"),
+    ("Mac OS X", "macOS"),
+    ("Linux", "Linux"),
+)
+UNKNOWN_DEVICE: Final = "Unknown device"
+
+
+def describe_device(user_agent: str | None) -> str:
+    """A short label like "Safari on iPhone" for the sessions list, from the User-Agent.
+
+    Only a hint to help people recognise their devices; it's never used for security.
+    """
+    if not user_agent:
+        return UNKNOWN_DEVICE
+    browser = next((name for token, name in _BROWSERS if token in user_agent), None)
+    system = next((name for token, name in _SYSTEMS if token in user_agent), None)
+    if browser and system:
+        return f"{browser} on {system}"
+    return browser or system or UNKNOWN_DEVICE
