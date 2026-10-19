@@ -8,15 +8,23 @@ from fastapi import APIRouter, Cookie, Depends, Request, Response
 from app.auth import service
 from app.auth.dependencies import require_allowed_origin
 from app.auth.exceptions import NotAuthenticated
-from app.auth.schemas import AccessToken, CodeSent, LoginRequest, VerifyRequest
+from app.auth.schemas import (
+    AccessToken,
+    CodeSent,
+    GoogleLoginRequest,
+    LoginRequest,
+    VerifyRequest,
+)
 from app.core.config import get_settings
 from app.core.database.session import DbSession
 from app.core.email import EmailSender, get_email_sender
+from app.core.google import GoogleVerifier, get_google_verifier
 from app.core.security import CODE_TTL
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 Email = Annotated[EmailSender, Depends(get_email_sender)]
+Google = Annotated[GoogleVerifier, Depends(get_google_verifier)]
 
 REFRESH_COOKIE: Final = "refresh_token"
 # `main.py` mounts this router under /api/v1, so the browser sends the cookie to the auth
@@ -63,6 +71,25 @@ async def verify(
         db,
         family_name=body.family_name,
         code=body.code,
+        device_label=service.describe_device(request.headers.get("user-agent")),
+    )
+    return _signed_in(response, signed_in)
+
+
+@router.post("/google")
+async def google(
+    body: GoogleLoginRequest,
+    request: Request,
+    response: Response,
+    db: DbSession,
+    verifier: Google,
+) -> AccessToken:
+    """Log this device in with Google instead of an emailed code. Admins add their password."""
+    signed_in = await service.google_login(
+        db,
+        verifier,
+        id_token=body.id_token.get_secret_value(),
+        password=body.password.get_secret_value() if body.password else None,
         device_label=service.describe_device(request.headers.get("user-agent")),
     )
     return _signed_in(response, signed_in)

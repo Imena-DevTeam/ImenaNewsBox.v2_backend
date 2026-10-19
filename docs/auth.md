@@ -6,8 +6,10 @@ A family name is easy to know, so on its own it must **never** be enough to get 
 
 In v2, **each new device has to prove itself once**, and after that it stays logged in:
 
-- **Members and social media managers:** family name, then a **6-digit code emailed** to their address.
-- **Admins:** family name and **password**, then an emailed code (a second factor).
+- **Members and social media managers:** family name, then a **6-digit code emailed** to their address, **or "Sign in with Google"** with the Google account that uses that address.
+- **Admins:** their **password** plus a second proof: either family name + password, then an emailed code, or password + Google (the Google account already says who they are, so no family name is needed).
+
+Google proves the same thing a code does (that the person owns the email address), so it's an alternative to the code, never a way around it. It works on a first login too, and like a first code it marks the email as verified. No login method ever creates an account: admins register every member.
 
 After that, the device holds a long-lived **refresh token** and doesn't have to log in again for up to 90 days of inactivity. Someone who knows your family name but not your inbox (or password) can't get in from their own device.
 
@@ -58,7 +60,31 @@ Body: `{"family_name": "...", "code": "123456"}`. Spaces around the code are ign
 - **Right code:** 200 `{"access_token", "token_type": "bearer", "expires_in": 900}`, plus the refresh cookie (see [Tokens](#tokens)). A new `user_sessions` row is created, labelled from the `User-Agent` (e.g. "Safari on iPhone"), and the first successful code sets `email_verified_at`.
 - **Anything else** (wrong, used, expired, out of attempts, an older code, someone else's code, an unknown or deactivated user): 401 `invalid_code`, and no cookie.
 
-Every way of logging in ends in `start_session` (`auth/service.py`), which creates the session and the tokens, so Google sign-in will behave exactly the same from that point on.
+Every way of logging in ends in `start_session` (`auth/service.py`), which creates the session and the tokens, so a device logged in with Google behaves exactly the same from then on.
+
+### `POST /google` — log in with Google instead of a code
+
+Body: `{"id_token": "...", "password": "..."}`. `id_token` is the credential that Google's sign-in button gives the frontend; only admins send `password`.
+
+The API checks the token itself (`core/google.py`): Google's signature, `iss` is Google, `aud` is our `GOOGLE_CLIENT_ID`, it hasn't expired, and `email_verified` is true. It then looks for the **active** user whose email matches the token's, ignoring case.
+
+| Situation | Response |
+|---|---|
+| member or social media manager | 200, same body and cookie as `/verify`; sets `email_verified_at` if it was empty |
+| admin with the right password | the same 200 |
+| admin without a password | 401 `admin_password_required` |
+| admin with a wrong password | 401 `invalid_credentials` |
+| no active user has that email | 401 `google_account_not_registered` |
+| token not from Google, for another app, or expired | 401 `invalid_google_token` |
+| Google says the email isn't verified | 401 `google_email_not_verified` |
+| Google's keys can't be fetched | 502 `google_unavailable` (the code login still works) |
+| `GOOGLE_CLIENT_ID` isn't set | 503 `google_not_configured` |
+
+Unlike `/login`, these errors name their cause. Only the person who signed in to that Google account can see them, so they reveal nothing to anyone else, and `google_account_not_registered` helps a member spot a typo in the email an admin entered.
+
+The match is by email, not by Google's account ID, so an admin can fix a wrong email and the member's next Google login simply works. Members without a Google account (or with a different address) keep using codes.
+
+> **Frontend:** use Google Identity Services' button with the same client ID, and post its `credential` here. For admins, ask for the password first and send it along.
 
 ### `POST /refresh` — a new access token
 
@@ -121,7 +147,7 @@ No body; it needs the cookie and our `Origin`, like refresh. It revokes this dev
 - **Cleanup:** there's no scheduler, so every login request deletes codes older than 24 hours and sessions that expired or were revoked more than 7 days ago.
 - **Sending:** codes are sent **during the request**. If the email provider fails, the user sees an error right away and can try again, instead of waiting for an email that never arrives. A code that couldn't be sent is deleted, so it doesn't trigger the 60-second cooldown.
 - **Concurrency:** issuing a code locks the user's row, and checking one locks the code's row, so two requests at once can't both get past the limits or both use the same code. The code is committed *before* the email is sent, so no lock is held while waiting for the provider.
-- **`email_verified_at`** is set the first time a code to an address works. It doesn't grant access; it tells us the address is real. When an admin changes someone's email, it's cleared and a code goes to the new address.
+- **`email_verified_at`** is set the first time a code to an address works, or the first Google login with it. It doesn't grant access; it tells us the address is real. When an admin changes someone's email, it's cleared and a code goes to the new address.
 
 ## Why the Vercel proxy
 

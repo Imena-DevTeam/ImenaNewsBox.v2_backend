@@ -4,6 +4,7 @@ from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, Field, SecretStr, StringConstraints
 
+from app.core.google import ID_TOKEN_MAX_LENGTH
 from app.core.security import CODE_LENGTH
 from app.users.models import FAMILY_NAME_MAX_LENGTH
 
@@ -15,12 +16,13 @@ FamilyName = Annotated[
 ]
 
 
+# Admins only: members leave it out. SecretStr keeps it out of reprs and logs.
+AdminPassword = Annotated[SecretStr, Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)]
+
+
 class LoginRequest(BaseModel):
     family_name: FamilyName
-    # Admins only: members leave it out. SecretStr keeps it out of reprs and logs.
-    password: Annotated[SecretStr, Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)] | None = (
-        None
-    )
+    password: AdminPassword | None = None
 
 
 class CodeSent(BaseModel):
@@ -37,6 +39,12 @@ class VerifyRequest(BaseModel):
     code: Annotated[
         str, StringConstraints(strip_whitespace=True, pattern=rf"^[0-9]{{{CODE_LENGTH}}}$")
     ]
+
+
+class GoogleLoginRequest(BaseModel):
+    # The ID token ("credential") from Google's sign-in button.
+    id_token: Annotated[SecretStr, Field(min_length=1, max_length=ID_TOKEN_MAX_LENGTH)]
+    password: AdminPassword | None = None
 
 
 class AccessToken(BaseModel):

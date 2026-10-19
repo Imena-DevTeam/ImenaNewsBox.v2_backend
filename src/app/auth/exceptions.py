@@ -64,3 +64,18 @@ class RefreshConflict(Conflict):
 
     code = "refresh_conflict"
     default_message = "This device refreshed its login a moment ago. Try again."
+
+
+class GoogleAccountNotRegistered(Unauthorized):
+    """Only the owner of the Google account can see this, so naming the cause is safe."""
+
+    code = "google_account_not_registered"
+    default_message = (
+        "No active member uses this Google account's email address. Log in with your family "
+        "name, or ask an admin to check the email on your account."
+    )
+
+
+class AdminPasswordRequired(Unauthorized):
+    code = "admin_password_required"
+    default_message = "Admins also need their password to sign in with Google."

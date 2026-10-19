@@ -81,8 +81,9 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - Email, birth year, role, sessions and status are visible only to the user themselves and to admins.
   - Use separate read schemas (e.g. `UserPublicRead` vs `UserRead`) and never one schema with optional hiding.
 - **Login is per device.** A device holding a valid refresh token never logs in again. A new device must prove itself:
-  - **Admin:** family name + password, **then** an emailed code.
-  - **Member / social media manager:** family name, then an emailed code.
+  - **Admin:** family name + password, **then** an emailed code **or** Google sign-in (with the password).
+  - **Member / social media manager:** family name, then an emailed code, **or** Google sign-in on its own.
+  - **Google sign-in** (`POST /auth/google`) matches the active user by `lower(email)` and replaces the code: it works before verification too and sets `email_verified_at`. No login path ever creates an account. Every path ends in `start_session`.
   - **After a successful login:**
     - It issues an **access token (15 min)** and a **refresh token (90 days)**. Lifetimes come from `ACCESS_TOKEN_EXPIRES_IN` / `REFRESH_TOKEN_EXPIRES_IN`.
     - The refresh token's hash is stored in a `user_sessions` row: user, device label (from the user agent), created and last-used times, revoked.
@@ -98,7 +99,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
 - **Email verification:**
   - Codes are 6 digits, expire after 10 minutes, are single-use and stored hashed, and allow 5 attempts with a 60-second resend cooldown and at most 10 codes per user and purpose in 24 hours. Only the newest code works. Use `issue_code` / `consume_code` in `auth/service.py` for every purpose.
   - Throttling is stored in Postgres, not Redis.
-  - The first successful code sets `email_verified_at`. When an admin changes a user's email, `email_verified_at` is cleared and a code is sent to the new address. The user confirms it with an authenticated endpoint.
+  - The first successful code (or Google login) sets `email_verified_at`. When an admin changes a user's email, `email_verified_at` is cleared and a code is sent to the new address. The user confirms it with an authenticated endpoint.
 - **Wishes** have a sender, a **recipient** and the birthday year, and are kept as history; there's no purge.
   - Any member can wish any other member, but not themselves.
   - There's **one wish per sender, recipient and year**, enforced with a unique constraint.
@@ -233,6 +234,6 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 ## Current state (not built yet)
 
 The layout, dependencies, tool config, CI, settings and the DB session are in place, but every feature module is still a placeholder. Still missing:
-- **Done:** the login flow (`POST /api/v1/auth/login`, `/verify`, `/refresh`, `/logout`; see `docs/auth.md`), `config.py`, `database/`, Alembic (async `env.py`; first migration: `users`, `sub_families`, `promotions`), `users/models.py` (`Role`, `User`, `SubFamily`, `Promotion`; the lookup lists are still empty), `auth/models.py` (`UserSession`, `EmailCode`) and `auth/dependencies.py` (current user, roles, ownership), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, the `core/` wrappers (`email.py` with no provider yet, `media.py`, `sanity.py`) and their fakes, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
+- **Done:** the login flow (`POST /api/v1/auth/login`, `/verify`, `/google`, `/refresh`, `/logout`; see `docs/auth.md`), `core/google.py`, `config.py`, `database/`, Alembic (async `env.py`; first migration: `users`, `sub_families`, `promotions`), `users/models.py` (`Role`, `User`, `SubFamily`, `Promotion`; the lookup lists are still empty), `auth/models.py` (`UserSession`, `EmailCode`) and `auth/dependencies.py` (current user, roles, ownership), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, the `core/` wrappers (`email.py` with no provider yet, `media.py`, `sanity.py`) and their fakes, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
 - **Code:** the real email provider (gated) and the Sanity webhook check (with posts).
-- **Features:** the rest of auth (Google sign-in, listing and revoking sessions), and users, wishes and posts beyond their models, plus `scripts/import_v1.py` and the admin seed.
+- **Features:** the rest of auth (listing and revoking sessions), and users, wishes and posts beyond their models, plus `scripts/import_v1.py` and the admin seed.

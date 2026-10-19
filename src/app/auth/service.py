@@ -9,7 +9,9 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.exceptions import (
+    AdminPasswordRequired,
     CodeRecentlySent,
+    GoogleAccountNotRegistered,
     InvalidCode,
     InvalidCredentials,
     RefreshConflict,
@@ -19,6 +21,7 @@ from app.auth.exceptions import (
 from app.auth.models import DEVICE_LABEL_MAX_LENGTH, EmailCode, UserSession
 from app.core.config import get_settings
 from app.core.email import CodePurpose, EmailSender, send_code
+from app.core.google import GoogleVerifier
 from app.core.security import (
     CODE_TTL,
     create_access_token,
@@ -241,6 +244,41 @@ async def verify_login(
     if user is None:
         raise InvalidCode()
     await consume_code(db, user, CodePurpose.LOGIN, code)
+    mark_email_verified(user)
+    signed_in = await start_session(db, user, device_label=device_label)
+    await db.commit()
+    return signed_in
+
+
+async def google_login(
+    db: AsyncSession,
+    verifier: GoogleVerifier,
+    *,
+    id_token: str,
+    password: str | None,
+    device_label: str,
+) -> SignedIn:
+    """Log in with Google instead of an emailed code. Commits.
+
+    Google vouches that the person owns the email address, which is exactly what a code
+    proves, so it works on a first login too and then also verifies the email. The account
+    is found by email and never created. Admins also send their password: Google is then
+    their second step, in place of the code.
+    """
+    identity = await verifier.verify(id_token)
+    user = await db.scalar(
+        select(User).where(
+            func.lower(User.email) == func.lower(identity.email),
+            User.deactivated_at.is_(None),
+        )
+    )
+    if user is None:
+        raise GoogleAccountNotRegistered()
+    if user.role.at_least(Role.ADMIN):
+        if password is None:
+            raise AdminPasswordRequired()
+        if not await verify_password(password, user.password_hash):
+            raise InvalidCredentials()
     mark_email_verified(user)
     signed_in = await start_session(db, user, device_label=device_label)
     await db.commit()
