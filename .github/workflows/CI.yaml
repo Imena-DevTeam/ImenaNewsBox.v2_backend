@@ -1,6 +1,6 @@
 name: CI
 
-# Lint, format check and tests on every PR to main. Malware Guard runs separately.
+# Lint, format check, type check and tests on every PR to main. Malware Guard runs separately.
 
 on:
   pull_request:
@@ -55,6 +55,10 @@ jobs:
 
       - name: Lint
         run: uv run ruff check .
+
+      # Strict type checking catches bad calls and wrong argument types that ruff can't see.
+      - name: Type check
+        run: uv run mypy src
 
       - name: Run tests
         run: uv run pytest
