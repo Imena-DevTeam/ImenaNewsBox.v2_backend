@@ -51,7 +51,16 @@ sequenceDiagram
 
 **Lifetimes are configurable** through `ACCESS_TOKEN_EXPIRES_IN` and `REFRESH_TOKEN_EXPIRES_IN` (in seconds).
 
-**Expired vs invalid:** an expired access token gets a 401 with code `token_expired` (the frontend should refresh and retry), and any other bad token gets `invalid_token`.
+**Error codes the frontend should handle:**
+
+| Status | Code | Meaning | Frontend should |
+|---|---|---|---|
+| 401 | `not_authenticated` | no `Authorization: Bearer` header | log in |
+| 401 | `token_expired` | the access token is older than 15 minutes | refresh, then retry |
+| 401 | `invalid_token` | the token is malformed, tampered with or signed with another key | log in |
+| 401 | `session_ended` | that device was signed out, its session expired, or the user was deactivated (deliberately not saying which) | log in |
+| 403 | `insufficient_role` | logged in, but the role is too low | show "not allowed" |
+| 403 | `not_owner` | logged in, but it's someone else's resource | show "not allowed" |
 
 ## Emailed codes
 
