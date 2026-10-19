@@ -1,6 +1,6 @@
 """Exceptions raised by this feature."""
 
-from app.core.exceptions import Forbidden, Unauthorized
+from app.core.exceptions import Conflict, Forbidden, TooManyRequests, Unauthorized
 
 
 class NotAuthenticated(Unauthorized):
@@ -24,3 +24,58 @@ class InsufficientRole(Forbidden):
 class NotOwner(Forbidden):
     code = "not_owner"
     default_message = "You can only change your own things."
+
+
+class OriginNotAllowed(Forbidden):
+    """A cookie-authenticated request (refresh or logout) came from a page that isn't ours."""
+
+    code = "origin_not_allowed"
+    default_message = "This request must come from the Imena NewsBox website."
+
+
+class InvalidCode(Unauthorized):
+    """Wrong, used, expired or out of attempts: one error, so a guesser learns nothing."""
+
+    code = "invalid_code"
+    default_message = "That code is wrong, used or expired. Check it, or ask for a new one."
+
+
+class CodeRecentlySent(TooManyRequests):
+    code = "code_recently_sent"
+    default_message = "A code was sent less than a minute ago. Check your inbox first."
+
+
+class TooManyCodes(TooManyRequests):
+    code = "too_many_codes"
+    default_message = "Too many codes were requested in the last 24 hours. Try again later."
+
+
+class InvalidCredentials(Unauthorized):
+    """A password was sent and it's wrong, or the account isn't an admin's, or doesn't exist."""
+
+    code = "invalid_credentials"
+    default_message = "The family name or password is wrong."
+
+
+class RefreshConflict(Conflict):
+    """The previous refresh token came back just after it was replaced: almost always a
+    second tab that refreshed at the same moment. The browser already has the new cookie,
+    so retrying the refresh works."""
+
+    code = "refresh_conflict"
+    default_message = "This device refreshed its login a moment ago. Try again."
+
+
+class GoogleAccountNotRegistered(Unauthorized):
+    """Only the owner of the Google account can see this, so naming the cause is safe."""
+
+    code = "google_account_not_registered"
+    default_message = (
+        "No active member uses this Google account's email address. Log in with your family "
+        "name, or ask an admin to check the email on your account."
+    )
+
+
+class AdminPasswordRequired(Unauthorized):
+    code = "admin_password_required"
+    default_message = "Admins also need their password to sign in with Google."

@@ -27,7 +27,8 @@ from app.auth.service import create_session
 from app.core.config import get_settings
 from app.core.database.session import get_session
 from app.core.email import get_email_sender
-from app.core.fakes import FakeEmailSender, FakeMediaStore, FakeSanity
+from app.core.fakes import FakeEmailSender, FakeGoogleVerifier, FakeMediaStore, FakeSanity
+from app.core.google import get_google_verifier
 from app.core.media import get_media_store
 from app.core.sanity import get_sanity
 from app.core.security import create_access_token, hash_password
@@ -165,14 +166,20 @@ def fake_sanity() -> FakeSanity:
 
 
 @pytest.fixture
+def fake_google() -> FakeGoogleVerifier:
+    return FakeGoogleVerifier()
+
+
+@pytest.fixture
 async def client(
     db_session: AsyncSession,
     fake_email: FakeEmailSender,
     fake_media: FakeMediaStore,
     fake_sanity: FakeSanity,
+    fake_google: FakeGoogleVerifier,
 ) -> AsyncIterator[AsyncClient]:
     """An HTTP client for the app. Every request uses the test's session and the fakes above,
-    so no test reaches a real email provider, Cloudinary or Sanity."""
+    so no test reaches a real email provider, Cloudinary, Sanity or Google."""
 
     async def _get_test_session() -> AsyncIterator[AsyncSession]:
         yield db_session
@@ -182,6 +189,7 @@ async def client(
         get_email_sender: lambda: fake_email,
         get_media_store: lambda: fake_media,
         get_sanity: lambda: fake_sanity,
+        get_google_verifier: lambda: fake_google,
     }
     app.dependency_overrides.update(overrides)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:

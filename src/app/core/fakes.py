@@ -1,8 +1,8 @@
-"""In-memory fakes of the `core/` wrappers (email, Cloudinary, Sanity), for tests only.
+"""In-memory fakes of the `core/` wrappers (email, Cloudinary, Sanity, Google), for tests only.
 
 The root `conftest.py` installs them for every request made through the `client` fixture, so
 no test can reach a real external service. Tests get the same instances from the
-`fake_email`, `fake_media` and `fake_sanity` fixtures to inspect or script them.
+`fake_email`, `fake_media`, `fake_sanity` and `fake_google` fixtures to inspect or script them.
 """
 
 import re
@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.email import EmailDeliveryError, EmailMessage
+from app.core.google import GoogleIdentity, GoogleUnavailable, InvalidGoogleToken
 from app.core.media import MediaUnavailable, UploadedImage, check_image
 from app.core.sanity import SanityUnavailable
 
@@ -92,3 +93,28 @@ class FakeSanity:
     def _check_available(self) -> None:
         if self.unavailable:
             raise SanityUnavailable()
+
+
+@dataclass
+class FakeGoogleVerifier:
+    """Hands out stand-in ID tokens: `token = fake_google.token_for(user.email)`.
+
+    The real checks (signature, issuer, audience, expiry, `email_verified`) are tested against
+    `GoogleIdTokenVerifier` itself; endpoint tests only need "this token means this email".
+    """
+
+    identities: dict[str, GoogleIdentity] = field(default_factory=dict)
+    unavailable: bool = False
+
+    def token_for(self, email: str, *, subject: str | None = None) -> str:
+        token = f"fake-google-token-{len(self.identities) + 1}"
+        self.identities[token] = GoogleIdentity(subject=subject or f"sub-{token}", email=email)
+        return token
+
+    async def verify(self, id_token: str) -> GoogleIdentity:
+        if self.unavailable:
+            raise GoogleUnavailable()
+        identity = self.identities.get(id_token)
+        if identity is None:
+            raise InvalidGoogleToken()
+        return identity

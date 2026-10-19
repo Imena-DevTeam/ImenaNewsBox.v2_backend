@@ -18,6 +18,7 @@ Backend API for Imena NewsBox, a private family platform for member profiles, bi
 - External services:
   - **Sanity CMS:** everything blog-related, including its images. Called through its HTTP API with `httpx`; there's no official Python SDK. The PyPI package named `sanity` is unrelated, so never add it.
   - **Cloudinary:** profile photos only, using the official `cloudinary` SDK.
+  - **Google sign-in:** `core/google.py` checks Google ID tokens with PyJWT (`pyjwt[crypto]`) against Google's public keys, fetched with `httpx`. No Google SDK. `GOOGLE_CLIENT_ID` is the frontend button's client ID; empty turns Google sign-in off.
   - **Email:** Resend or the Gmail API, not chosen yet (see "Open decisions"). Either way it goes over HTTPS with `httpx`, behind `core/email.py`. No SDK, and never SMTP.
 - pytest + pytest-asyncio + httpx; ruff; mypy
 - Docker, deployed as a single **Render free** web service
@@ -80,8 +81,9 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - Email, birth year, role, sessions and status are visible only to the user themselves and to admins.
   - Use separate read schemas (e.g. `UserPublicRead` vs `UserRead`) and never one schema with optional hiding.
 - **Login is per device.** A device holding a valid refresh token never logs in again. A new device must prove itself:
-  - **Admin:** family name + password, **then** an emailed code.
-  - **Member / social media manager:** family name, then an emailed code.
+  - **Admin:** family name + password, **then** an emailed code **or** Google sign-in (with the password).
+  - **Member / social media manager:** family name, then an emailed code, **or** Google sign-in on its own.
+  - **Google sign-in** (`POST /auth/google`) matches the active user by `lower(email)` and replaces the code: it works before verification too and sets `email_verified_at`. No login path ever creates an account. Every path ends in `start_session`.
   - **After a successful login:**
     - It issues an **access token (15 min)** and a **refresh token (90 days)**. Lifetimes come from `ACCESS_TOKEN_EXPIRES_IN` / `REFRESH_TOKEN_EXPIRES_IN`.
     - The refresh token's hash is stored in a `user_sessions` row: user, device label (from the user agent), created and last-used times, revoked.
@@ -95,9 +97,9 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - Users can list and revoke their own sessions, and admins can revoke anyone's. Knowing a family name is never enough on its own to get tokens.
   - **Every authenticated request loads the user from the DB** in one query (by primary key, joined to the token's session), and rejects deactivated users and revoked or expired sessions. Role comes from the DB row, not the token. **Never cache this lookup**, so deactivation, session revocation and role changes take effect immediately.
 - **Email verification:**
-  - Codes are 6 digits, expire after 10 minutes, are single-use and stored hashed, and allow 5 attempts with a 60-second resend cooldown.
+  - Codes are 6 digits, expire after 10 minutes, are single-use and stored hashed, and allow 5 attempts with a 60-second resend cooldown and at most 10 codes per user and purpose in 24 hours. Only the newest code works. Use `issue_code` / `consume_code` in `auth/service.py` for every purpose.
   - Throttling is stored in Postgres, not Redis.
-  - The first successful code sets `email_verified_at`. When an admin changes a user's email, `email_verified_at` is cleared and a code is sent to the new address. The user confirms it with an authenticated endpoint.
+  - The first successful code (or Google login) sets `email_verified_at`. When an admin changes a user's email, `email_verified_at` is cleared and a code is sent to the new address. The user confirms it with an authenticated endpoint.
 - **Wishes** have a sender, a **recipient** and the birthday year, and are kept as history; there's no purge.
   - Any member can wish any other member, but not themselves.
   - There's **one wish per sender, recipient and year**, enforced with a unique constraint.
@@ -113,7 +115,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
 - **Background work is minimal:**
   - **Code emails are sent during the request,** with a short timeout and one retry. On failure the user gets a clear error and can resend.
   - **Old Cloudinary photo deletes** run as `BackgroundTasks`. A lost delete only leaves an unused image behind.
-  - **Expired codes and sessions** are ignored by their expiry time, and old rows are deleted as part of the login flow. No scheduler is needed.
+  - **Expired codes and sessions** are ignored by their expiry time, and old rows are deleted on every `POST /auth/login` (`delete_stale_rows`): codes after 24 hours (the daily code limit counts them), sessions 7 days after they expire or are revoked. No scheduler is needed.
   - **There's no jobs endpoint or scheduled workflow yet.** Add a scheduled GitHub Actions workflow only when a real scheduled feature arrives (e.g. birthday emails).
   - GET endpoints never trigger side effects.
 
@@ -126,6 +128,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - The whole posts cache is cleared after every successful post write and on the Sanity webhook.
   - This works because the free plan runs one instance. Moving to multiple instances would need a shared cache.
 - **Postgres data is not cached** (users, wishes, sessions, the current user). The queries are cheap at family scale, and stale or cross-user data is the bigger risk.
+- **The one other cache:** Google's public signing keys, kept in memory by `core/google.py` for as long as Google's `Cache-Control` allows. They're public keys, not user data.
 - **Every response sends `Cache-Control: private, no-store`,** so Vercel's proxy or edge can never cache member data. `NoStoreMiddleware` in `main.py` sets it on every response and overwrites any value a route sets, so never try to send `public` or `s-maxage`.
 - **Frontend (Next.js) rule, for reference:** only per-user client caching (TanStack Query, SWR, router cache), plus static or ISR rendering for the public landing page. No shared Next or Vercel caching of anything behind a login.
 
@@ -147,8 +150,9 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - On Windows, psycopg's async mode needs a selector event loop. `alembic/env.py` and `conftest.py` already handle that.
   - Users: `await make_user(role=Role.ADMIN, password="...", **fields)` creates a user with unique defaults in a fresh `sub_family`. Annotate it as `Callable[..., Awaitable[User]]`.
   - Auth: `headers = await login_as(user)` starts a real session and returns its `Authorization` header. Annotate it as `Callable[[User], Awaitable[dict[str, str]]]`.
-  - Email, Sanity and Cloudinary are faked at the `core/` wrapper boundary (`core/fakes.py`). The `client` fixture always installs the fakes; request `fake_email`, `fake_media` or `fake_sanity` to inspect or script them (e.g. `fake_email.last_code(address)`, `fake_email.failures_left = 2`).
-  - Services take the wrapper as a parameter, and routers get it with `Depends(get_email_sender)`, `Depends(get_media_store)` or `Depends(get_sanity)`.
+  - Auth endpoint tests (`auth/tests/`): `conftest.py` makes `FRONTEND` the only allowed origin, `request_code(user)` and `sign_in(user)` go through the real endpoints, and `helpers.py` has `post_with_cookie` and `refresh_cookie`. The test client uses `http://`, so its cookie jar never sends the `Secure` refresh cookie: pass it explicitly.
+  - Email, Sanity, Cloudinary and Google are faked at the `core/` wrapper boundary (`core/fakes.py`). The `client` fixture always installs the fakes; request `fake_email`, `fake_media`, `fake_sanity` or `fake_google` to inspect or script them (e.g. `fake_email.last_code(address)`, `fake_email.failures_left = 2`, `fake_google.token_for(email)`). The real Google checks are tested in `core/tests/test_google.py` with a test RSA key.
+  - Services take the wrapper as a parameter, and routers get it with `Depends(get_email_sender)`, `Depends(get_media_store)`, `Depends(get_sanity)` or `Depends(get_google_verifier)`.
   - Every endpoint needs tests for success, auth, role and ownership denial, and its main failure cases.
 
 ## Commands
@@ -230,6 +234,6 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 ## Current state (not built yet)
 
 The layout, dependencies, tool config, CI, settings and the DB session are in place, but every feature module is still a placeholder. Still missing:
-- **Done:** `config.py`, `database/`, Alembic (async `env.py`; first migration: `users`, `sub_families`, `promotions`), `users/models.py` (`Role`, `User`, `SubFamily`, `Promotion`; the lookup lists are still empty), `auth/models.py` (`UserSession`, `EmailCode`) and `auth/dependencies.py` (current user, roles, ownership), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, the `core/` wrappers (`email.py` with no provider yet, `media.py`, `sanity.py`) and their fakes, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
+- **Done:** the login flow (`POST /api/v1/auth/login`, `/verify`, `/google`, `/refresh`, `/logout`; see `docs/auth.md`), `core/google.py`, `config.py`, `database/`, Alembic (async `env.py`; first migration: `users`, `sub_families`, `promotions`), `users/models.py` (`Role`, `User`, `SubFamily`, `Promotion`; the lookup lists are still empty), `auth/models.py` (`UserSession`, `EmailCode`) and `auth/dependencies.py` (current user, roles, ownership), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, the `core/` wrappers (`email.py` with no provider yet, `media.py`, `sanity.py`) and their fakes, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
 - **Code:** the real email provider (gated) and the Sanity webhook check (with posts).
-- **Features:** auth endpoints (login, verify, refresh, logout, Google sign-in, sessions), and users, wishes and posts beyond their models, plus `scripts/import_v1.py` and the admin seed.
+- **Features:** the rest of auth (listing and revoking sessions), and users, wishes and posts beyond their models, plus `scripts/import_v1.py` and the admin seed.
