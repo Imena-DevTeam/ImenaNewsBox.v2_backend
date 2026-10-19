@@ -48,3 +48,10 @@ class CodeRecentlySent(TooManyRequests):
 class TooManyCodes(TooManyRequests):
     code = "too_many_codes"
     default_message = "Too many codes were requested in the last 24 hours. Try again later."
+
+
+class InvalidCredentials(Unauthorized):
+    """A password was sent and it's wrong, or the account isn't an admin's, or doesn't exist."""
+
+    code = "invalid_credentials"
+    default_message = "The family name or password is wrong."

@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.exceptions import CodeRecentlySent, InvalidCode, TooManyCodes
+from app.auth.exceptions import CodeRecentlySent, InvalidCode, InvalidCredentials, TooManyCodes
 from app.auth.models import DEVICE_LABEL_MAX_LENGTH, EmailCode, UserSession
 from app.core.config import get_settings
 from app.core.email import CodePurpose, EmailSender, send_code
@@ -18,8 +18,9 @@ from app.core.security import (
     hash_code,
     hash_refresh_token,
     verify_code,
+    verify_password,
 )
-from app.users.models import User
+from app.users.models import Role, User
 
 CODE_RESEND_COOLDOWN: Final = timedelta(seconds=60)
 CODE_MAX_ATTEMPTS: Final = 5
@@ -130,6 +131,41 @@ async def consume_code(db: AsyncSession, user: User, purpose: CodePurpose, code:
         raise InvalidCode()
     latest.consumed_at = now
     await db.flush()
+
+
+# --- Logging in ---
+
+
+async def find_active_user(db: AsyncSession, family_name: str) -> User | None:
+    """The active user with this family name, ignoring case (uses its unique index)."""
+    return await db.scalar(
+        select(User).where(
+            func.lower(User.family_name) == func.lower(family_name),
+            User.deactivated_at.is_(None),
+        )
+    )
+
+
+async def start_login(
+    db: AsyncSession, sender: EmailSender, *, family_name: str, password: str | None
+) -> None:
+    """Step one on a new device: email a login code if the details are right.
+
+    Members send only their family name. Admins also send their password, which is checked
+    before any code goes out. Unknown or deactivated users, and admins without a password,
+    get the same response as everyone else but no email, so the response doesn't reveal which
+    accounts exist or who is an admin. A wrong password is the only error, and it's the same
+    for unknown users and members (and costs the same Argon2 time).
+    """
+    user = await find_active_user(db, family_name)
+    is_admin = user is not None and user.role.at_least(Role.ADMIN)
+    if password is not None:
+        admin_hash = user.password_hash if user is not None and is_admin else None
+        if not await verify_password(password, admin_hash):
+            raise InvalidCredentials()
+    if user is None or (is_admin and password is None):
+        return
+    await issue_code(db, sender, user, CodePurpose.LOGIN, to=user.email)
 
 
 # --- Device labels ---

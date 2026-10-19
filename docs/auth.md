@@ -32,6 +32,25 @@ sequenceDiagram
     Note over M,A: For admins, the login step also checks the password<br/>before any code is sent.
 ```
 
+## Endpoints
+
+All under `/api/v1/auth`. None of them needs an access token.
+
+### `POST /login` — step one on a new device
+
+Body: `{"family_name": "...", "password": "..."}`. Only admins send `password`; members leave it out. The family name ignores case and surrounding spaces.
+
+| Who | Response | Email |
+|---|---|---|
+| member or social media manager | 200 `{message, expires_in: 600, resend_after: 60}` | code sent |
+| admin with the right password | the same 200 | code sent |
+| unknown family name, deactivated user, or admin **without** a password | the same 200 | **none** |
+| anyone who sent a password that isn't an admin's correct one | 401 `invalid_credentials` | none |
+
+The 200 is identical in every case, so the endpoint doesn't say which family names exist or who is an admin. A sent password always costs the same Argon2 time. A few answers do only happen for real accounts: the 429 limits (`code_recently_sent`, `too_many_codes`) and an email failure (503 `email_not_sent` / `email_not_configured`). We accept that, because telling a real member what went wrong matters more, and family names aren't secret anyway; the code is what protects the account.
+
+> **Frontend:** give admins a way to enter their password (for example an "I'm an admin" link that shows the field). An admin who logs in without it gets the normal "code is on its way" answer, but no email.
+
 ## Tokens
 
 | | Access token | Refresh token |
