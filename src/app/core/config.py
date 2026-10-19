@@ -23,9 +23,11 @@ class Settings(BaseSettings):
     # Only read by the test suite. Its name must end in `_test`, because tests reset its schema.
     test_database_url: str = ""
 
-    # Auth tokens. Lifetimes are in seconds.
+    # Auth. ACCESS_TOKEN_SECRET signs access tokens (JWT); REFRESH_TOKEN_SECRET and CODE_SECRET
+    # key the HMACs stored for refresh tokens and email codes. Lifetimes are in seconds.
     access_token_secret: SecretStr
     refresh_token_secret: SecretStr
+    code_secret: SecretStr
     access_token_expires_in: int = 900
     refresh_token_expires_in: int = 7_776_000
 
@@ -71,7 +73,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _require_token_secrets_in_production(self) -> Self:
         if self.environment == "production":
-            for name in ("access_token_secret", "refresh_token_secret"):
+            for name in ("access_token_secret", "refresh_token_secret", "code_secret"):
                 if len(getattr(self, name).get_secret_value()) < 32:
                     raise ValueError(f"{name} must be at least 32 characters in production")
         return self

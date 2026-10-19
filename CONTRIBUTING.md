@@ -118,7 +118,7 @@ cp .env.example .env              # macOS / Linux
 Copy-Item .env.example .env       # Windows PowerShell
 ```
 
-Open `.env` and fill it in. Each comment in `.env.example` explains its variable. Generate `ACCESS_TOKEN_SECRET` and `REFRESH_TOKEN_SECRET` (two different values) with:
+Open `.env` and fill it in. Each comment in `.env.example` explains its variable. Generate `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET` and `CODE_SECRET` (three different values) with:
 
 ```bash
 uv run python -c "import secrets; print(secrets.token_urlsafe(32))"

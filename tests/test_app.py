@@ -88,3 +88,9 @@ async def test_production_hides_the_openapi_schema_and_docs() -> None:
 def test_settings_reject_a_wildcard_cors_origin() -> None:
     with pytest.raises(ValidationError, match="never '\\*'"):
         Settings(cors_origins="http://a.test,*")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("name", ["access_token_secret", "refresh_token_secret", "code_secret"])
+def test_production_requires_long_secrets(name: str) -> None:
+    with pytest.raises(ValidationError, match=f"{name} must be at least 32 characters"):
+        Settings(environment="production", **{name: "too-short"})  # type: ignore[arg-type]

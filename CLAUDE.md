@@ -12,7 +12,7 @@ Backend API for Imena NewsBox, a private family platform for member profiles, bi
 
 - Python 3.14, **uv** (`pyproject.toml` + `uv.lock`), FastAPI, Pydantic v2, pydantic-settings
 - **Neon** Postgres via **async** SQLAlchemy 2.x and Alembic (async `env.py`). The dependency is `sqlalchemy[asyncio]`, because 2.1 no longer installs `greenlet` by default. Use `AsyncSession`, `create_async_engine` and `postgresql+psycopg://` (psycopg 3).
-- Auth: PyJWT access + refresh tokens (separate secrets) and pwdlib[argon2] for admin passwords
+- Auth (`core/security.py`): PyJWT access tokens (`ACCESS_TOKEN_SECRET`), opaque random refresh tokens stored as an HMAC (`REFRESH_TOKEN_SECRET`), 6-digit codes stored as an HMAC (`CODE_SECRET`), and pwdlib[argon2] for admin passwords (async, run in a thread)
 - Background work: FastAPI `BackgroundTasks` only, for fire-and-forget cleanup. **No Celery, no Redis, no scheduler.**
 - Caching: `cachetools`, in-process (see "Caching")
 - External services:
@@ -227,6 +227,6 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 ## Current state (not built yet)
 
 The layout, dependencies, tool config, CI, settings and the DB session are in place, but every feature module is still a placeholder. Still missing:
-- **Done:** `config.py`, `database/`, Alembic (async `env.py`, no migrations yet), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
-- **Code:** `core/security.py`, and the `core/` service wrappers (`email.py`, `media.py`, `sanity.py`).
+- **Done:** `config.py`, `database/`, Alembic (async `env.py`, no migrations yet), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
+- **Code:** the `core/` service wrappers (`email.py`, `media.py`, `sanity.py`).
 - **Features:** all four (auth, users, wishes, posts), plus `scripts/import_v1.py` and the admin seed.

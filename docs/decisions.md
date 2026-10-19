@@ -134,3 +134,12 @@ Almost every route is authenticated, and checking which ones are would mean a ro
 **39. No OpenAPI schema or `/docs` in production.**
 There is no public API, so production doesn't publish a map of it. Development and test environments (and a staging deploy with `ENVIRONMENT=development`) still serve `/docs`.
 
+**40. Refresh tokens are random strings, not JWTs.**
+Every refresh already needs a database lookup (to rotate the token and detect reuse), so a self-contained JWT adds nothing. A random 256-bit string is simpler and can't be decoded. Only its HMAC, keyed by `REFRESH_TOKEN_SECRET`, is stored, so a leaked database or backup can't be used to recognise or forge tokens.
+
+**41. Email codes are stored as an HMAC with their own `CODE_SECRET`.**
+A 6-digit code has only a million possible values, so a plain SHA-256 could be reversed instantly from a leaked database while the code is still valid. A keyed hash can't be reversed without the secret. It's a separate secret so that rotating it only invalidates codes in flight, without logging every device out.
+
+**42. Access tokens carry a session ID, and expired tokens get their own error code.**
+Access tokens hold the user ID and the ID of the session that issued them (so "this device" can be marked in the sessions list), never the role. An expired token returns `token_expired` and any other bad token `invalid_token`, so the frontend knows when to refresh and when to log out. Password hashing runs in a worker thread because Argon2 is deliberately slow, and verifying against a missing hash still spends the same time, so response times don't reveal which family names exist.
+

@@ -40,6 +40,8 @@ sequenceDiagram
 | **Where the frontend keeps it** | in memory | an `HttpOnly` cookie it can't read |
 | **How it's sent** | `Authorization: Bearer …` header | automatically by the browser, only to `/api/v1/auth` |
 | **What it's for** | calling the API | getting a new access token |
+| **What it is** | a signed JWT holding only the user and session IDs (never the role) | a random string with no meaning of its own |
+| **What the server stores** | nothing | an HMAC of it, keyed by `REFRESH_TOKEN_SECRET` |
 
 **How refresh works:**
 - When the access token expires, the frontend calls the refresh endpoint. The browser sends the cookie, and the API returns a new access token **and a new refresh token**: it **rotates** on every use.
@@ -49,11 +51,13 @@ sequenceDiagram
 
 **Lifetimes are configurable** through `ACCESS_TOKEN_EXPIRES_IN` and `REFRESH_TOKEN_EXPIRES_IN` (in seconds).
 
+**Expired vs invalid:** an expired access token gets a 401 with code `token_expired` (the frontend should refresh and retry), and any other bad token gets `invalid_token`.
+
 ## Emailed codes
 
 - **Format and limits:** 6 digits, valid for 10 minutes, single-use, 5 attempts.
 - **Resends:** one per 60 seconds.
-- **Storage:** codes are stored **hashed**, never in plain text.
+- **Storage:** codes are stored **hashed**, never in plain text. The hash is keyed by `CODE_SECRET`, because there are only a million possible codes: a plain hash could be reversed in seconds.
 - **Throttling** is stored in Postgres (there's no Redis).
 - **Sending:** codes are sent **during the request**. If the email provider fails, the user sees an error right away and can try again, instead of waiting for an email that never arrives.
 - **`email_verified_at`** is set the first time a code to an address works. It doesn't grant access; it tells us the address is real. When an admin changes someone's email, it's cleared and a code goes to the new address.
