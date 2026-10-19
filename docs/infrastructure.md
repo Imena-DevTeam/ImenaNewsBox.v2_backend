@@ -69,7 +69,8 @@ Only **blog posts** are cached, and only on the **backend**.
 - **The current-user lookup:** never cached, so deactivation and role changes apply instantly.
 
 **HTTP caching:**
-- Every authenticated response sends `Cache-Control: private, no-store`, so Vercel's proxy can never cache member data and serve it to someone else.
+- Every response sends `Cache-Control: private, no-store`, so Vercel's proxy can never cache member data and serve it to someone else. A middleware sets it on every response, including `/health` and errors, so no route can forget it.
+- In production the OpenAPI schema and the `/docs` pages are turned off, since there is no public API.
 - Images load straight from Sanity's and Cloudinary's CDNs, which handle their own caching.
 
 **Frontend (Next.js), for reference:**
