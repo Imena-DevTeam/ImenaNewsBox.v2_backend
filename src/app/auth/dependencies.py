@@ -15,11 +15,12 @@ Usage in a router or service:
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.auth.exceptions import InsufficientRole, NotAuthenticated, NotOwner, SessionEnded
 from app.auth.models import UserSession
@@ -50,6 +51,9 @@ async def get_authenticated(
         raise NotAuthenticated()
     claims = decode_access_token(credentials.credentials)
 
+    # Compare expiry times against the app's clock, which is the one that sets them. The
+    # database's now() can drift from it and is frozen at the start of the transaction.
+    now = datetime.now(UTC)
     user = await db.scalar(
         select(User)
         .join(UserSession, UserSession.user_id == User.id)
@@ -58,7 +62,7 @@ async def get_authenticated(
             User.deactivated_at.is_(None),
             UserSession.id == claims.session_id,
             UserSession.revoked_at.is_(None),
-            UserSession.expires_at > func.now(),
+            UserSession.expires_at > now,
         )
     )
     if user is None:
