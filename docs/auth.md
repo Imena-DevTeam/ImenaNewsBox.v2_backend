@@ -51,6 +51,15 @@ The 200 is identical in every case, so the endpoint doesn't say which family nam
 
 > **Frontend:** give admins a way to enter their password (for example an "I'm an admin" link that shows the field). An admin who logs in without it gets the normal "code is on its way" answer, but no email.
 
+### `POST /verify` — step two: the code logs the device in
+
+Body: `{"family_name": "...", "code": "123456"}`. Spaces around the code are ignored; anything other than 6 ASCII digits is a 422.
+
+- **Right code:** 200 `{"access_token", "token_type": "bearer", "expires_in": 900}`, plus the refresh cookie (see [Tokens](#tokens)). A new `user_sessions` row is created, labelled from the `User-Agent` (e.g. "Safari on iPhone"), and the first successful code sets `email_verified_at`.
+- **Anything else** (wrong, used, expired, out of attempts, an older code, someone else's code, an unknown or deactivated user): 401 `invalid_code`, and no cookie.
+
+Every way of logging in ends in `start_session` (`auth/service.py`), which creates the session and the tokens, so Google sign-in will behave exactly the same from that point on.
+
 ## Tokens
 
 | | Access token | Refresh token |

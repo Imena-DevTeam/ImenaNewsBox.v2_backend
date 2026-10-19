@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.core.email import CodePurpose, EmailSender, send_code
 from app.core.security import (
     CODE_TTL,
+    create_access_token,
     generate_code,
     generate_refresh_token,
     hash_code,
@@ -166,6 +167,46 @@ async def start_login(
     if user is None or (is_admin and password is None):
         return
     await issue_code(db, sender, user, CodePurpose.LOGIN, to=user.email)
+
+
+@dataclass(frozen=True, slots=True)
+class SignedIn:
+    access_token: str
+    access_expires_at: datetime
+    # Goes only in the cookie, never in a response body.
+    refresh_token: str
+
+
+async def start_session(db: AsyncSession, user: User, *, device_label: str) -> SignedIn:
+    """Log `user` in on this device, once they've proved who they are (a code or Google).
+
+    Shared by every way of logging in. Flushes; the caller commits.
+    """
+    new = await create_session(db, user, device_label=device_label)
+    access_token, expires_at = create_access_token(user.id, new.session.id)
+    return SignedIn(
+        access_token=access_token, access_expires_at=expires_at, refresh_token=new.refresh_token
+    )
+
+
+def mark_email_verified(user: User) -> None:
+    """A code (or Google) reached this address, so it's real. Keeps the first time."""
+    if user.email_verified_at is None:
+        user.email_verified_at = datetime.now(UTC)
+
+
+async def verify_login(
+    db: AsyncSession, *, family_name: str, code: str, device_label: str
+) -> SignedIn:
+    """Step two: check the emailed code and start a session. Commits."""
+    user = await find_active_user(db, family_name)
+    if user is None:
+        raise InvalidCode()
+    await consume_code(db, user, CodePurpose.LOGIN, code)
+    mark_email_verified(user)
+    signed_in = await start_session(db, user, device_label=device_label)
+    await db.commit()
+    return signed_in
 
 
 # --- Device labels ---
