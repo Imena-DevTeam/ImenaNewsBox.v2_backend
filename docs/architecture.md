@@ -15,6 +15,7 @@ src/app/
 │   │   └── session.py   # get_session dependency
 │   ├── security.py      # JWT, password hashing, hashing of codes and refresh tokens
 │   ├── exceptions.py    # base exceptions + handlers that turn them into HTTP responses
+│   ├── pagination.py    # page/limit query parameters and the Page[T] response
 │   ├── email.py         # the only place that sends email
 │   ├── media.py         # Cloudinary wrapper (profile photos)
 │   └── sanity.py        # Sanity HTTP API client (blog posts)
@@ -65,6 +66,17 @@ flowchart LR
 3. The **service** does the work: it talks to the database and, through `core/`, to email, Cloudinary or Sanity.
 4. If something goes wrong, the service raises a **feature exception**. A handler in `core/exceptions.py` maps it to the right HTTP status. We never return a `200` with an error inside.
 
+**Error responses** all have the same body, so the frontend can handle them in one place:
+
+```json
+{"error": {"code": "wish_already_sent", "message": "You already wished this member a happy birthday this year."}}
+```
+
+- `code` is stable and machine-readable; `message` is for people and may change.
+- Feature exceptions subclass a common one (`BadRequest` 400, `Unauthorized` 401, `Forbidden` 403, `NotFound` 404, `Conflict` 409, `TooManyRequests` 429) and set their own `code` and default message.
+- Validation errors (422, code `validation_error`) add a `details` list of `{field, message}`. Unlike FastAPI's default, they never echo the submitted values, which may be codes or passwords.
+- Unknown routes and wrong methods use the same shape. Unexpected errors return a generic 500 with no internal details.
+
 There is **no controller layer**. Routers *are* the controllers. If queries ever get complicated enough to need a repository layer, discuss it with the team first.
 
 ## Rules for code across features
@@ -81,7 +93,7 @@ There is **no controller layer**. Routers *are* the controllers. If queries ever
 - **Database constraints, not "check then insert":** uniqueness such as family names or one wish per year is enforced by unique indexes.
 - **Configuration** only comes from `core/config.py`. When you add a variable, add it to `.env.example` too.
 - **API paths** are RESTful under `/api/v1` (e.g. `GET /api/v1/users/{id}`). We didn't keep v1's endpoint names.
-- **Pagination:** list endpoints take `page` and `limit`, with the limit capped.
+- **Pagination:** list endpoints take `page` (from 1) and `limit` (default 20, at most 100) and return `{items, total, page, limit}`, through `Pagination` and `Page[T]` in `core/pagination.py`.
 - **Logging:** use the `logging` module, never `print`. **Never log** request bodies, codes, tokens or email addresses.
 
 ## Testing

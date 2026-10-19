@@ -124,3 +124,13 @@ Indexes and constraints get explicit names (`ix_…`, `uq_…`, `fk_…`, `pk_�
 
 **36. A selector event loop on Windows.**
 psycopg's async mode can't use Windows' default asyncio event loop. Most of the team develops on Windows, so `alembic/env.py` and the pytest loop use `asyncio.SelectorEventLoop` there. Linux (CI and Render) is unaffected.
+
+**37. One error body for every error response.**
+Every error is `{"error": {"code", "message"}}`, including unknown routes, wrong methods and unexpected 500s, so the frontend handles errors in one place and branches on a stable `code`. Services raise `AppError` subclasses and never `HTTPException`, which keeps HTTP details out of business logic. Validation errors add a `details` list of fields and messages, without FastAPI's default echo of the submitted input, because that input can contain login codes or passwords.
+
+**38. `Cache-Control: private, no-store` on every response, not just authenticated ones.**
+Almost every route is authenticated, and checking which ones are would mean a route could be missed. A middleware sets the header on every response and overwrites anything a route sets. Caching `/health` or an error page has no value, so nothing is lost.
+
+**39. No OpenAPI schema or `/docs` in production.**
+There is no public API, so production doesn't publish a map of it. Development and test environments (and a staging deploy with `ENVIRONMENT=development`) still serve `/docs`.
+

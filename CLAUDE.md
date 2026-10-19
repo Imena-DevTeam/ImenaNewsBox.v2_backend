@@ -26,10 +26,10 @@ Backend API for Imena NewsBox, a private family platform for member profiles, bi
 
 ```
 src/app/
-├── main.py              # app factory, middleware (CORS allowlist), router registration
+├── main.py              # create_app(): middleware (CORS allowlist, no-store), handlers, /api/v1 routers
 ├── core/                # cross-cutting only: config.py, database/ (base.py: Base, engine.py: engine +
 │                        # SessionLocal, session.py: get_session),
-│                        # security.py, exceptions.py, and thin wrappers for external services:
+│                        # security.py, exceptions.py, pagination.py, and thin wrappers for external services:
 │                        # email.py, media.py (Cloudinary), sanity.py
 ├── auth/                # login, email codes, sessions/tokens, current-user, role + ownership deps
 ├── users/               # users (profile fields included), sub-families, promotions, admin user management
@@ -126,7 +126,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - The whole posts cache is cleared after every successful post write and on the Sanity webhook.
   - This works because the free plan runs one instance. Moving to multiple instances would need a shared cache.
 - **Postgres data is not cached** (users, wishes, sessions, the current user). The queries are cheap at family scale, and stale or cross-user data is the bigger risk.
-- **Every authenticated response sends `Cache-Control: private, no-store`,** so Vercel's proxy or edge can never cache member data. Never send `public` or `s-maxage` on authenticated routes.
+- **Every response sends `Cache-Control: private, no-store`,** so Vercel's proxy or edge can never cache member data. `NoStoreMiddleware` in `main.py` sets it on every response and overwrites any value a route sets, so never try to send `public` or `s-maxage`.
 - **Frontend (Next.js) rule, for reference:** only per-user client caching (TanStack Query, SWR, router cache), plus static or ISR rendering for the public landing page. No shared Next or Vercel caching of anything behind a login.
 
 ## Conventions
@@ -137,8 +137,9 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
 - **Neon:** the app uses the **pooled** connection URL (`DATABASE_URL`), and Alembic uses the **direct** URL (`DATABASE_URL_DIRECT`). Neon scales to zero, so the first query after an idle period is slower.
 - **No blocking calls in `async def`.** Use async DB and `httpx` (for Sanity and the email provider), and wrap the sync Cloudinary SDK with `run_in_threadpool`.
 - All config goes through `core/config.py` (pydantic-settings). Add every new variable to `.env.example` with a placeholder.
-- Raise feature exceptions and map them to HTTP responses in `core/exceptions.py`; don't return 200 with an error body. The API design is new: use RESTful resource paths under `/api/v1` (e.g. `/api/v1/users/{id}`).
-- List endpoints paginate consistently (`page`, `limit`, with a capped limit).
+- **Errors:** services raise `AppError` subclasses from `core/exceptions.py` (`BadRequest`, `Unauthorized`, `Forbidden`, `NotFound`, `Conflict`, `TooManyRequests`). A feature exception subclasses one of them and overrides `code` and `default_message`. Never raise `HTTPException` or return 200 with an error body. Every error response is `{"error": {"code", "message"}}`; validation errors add `details` (field + message, never the submitted input).
+- The API design is new: use RESTful resource paths under `/api/v1` (e.g. `/api/v1/users/{id}`). Each feature's `router.py` exposes `router = APIRouter(prefix="/<feature>")`, and `main.py` mounts it under `/api/v1`.
+- List endpoints take `params: Pagination` and return `Page[T]` from `core/pagination.py` (`page` from 1, `limit` default 20, max 100).
 - Use `logging`, never `print`. Never log request bodies, codes, tokens or emails.
 - **Tests:**
   - Co-locate them in `<feature>/tests/` and run against real Postgres (never SQLite) with per-test transaction rollback via root `conftest.py` fixtures: `db_session` (services may `commit()`; it only releases a savepoint) and `client` (an `httpx.AsyncClient` whose requests use that session).
@@ -226,6 +227,6 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 ## Current state (not built yet)
 
 The layout, dependencies, tool config, CI, settings and the DB session are in place, but every feature module is still a placeholder. Still missing:
-- **Done:** `config.py`, `database/`, Alembic (async `env.py`, no migrations yet), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile` and `docker-compose.yml`.
-- **Code:** `core/exceptions.py`, `core/security.py`, and the `core/` service wrappers (`email.py`, `media.py`, `sanity.py`).
+- **Done:** `config.py`, `database/`, Alembic (async `env.py`, no migrations yet), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
+- **Code:** `core/security.py`, and the `core/` service wrappers (`email.py`, `media.py`, `sanity.py`).
 - **Features:** all four (auth, users, wishes, posts), plus `scripts/import_v1.py` and the admin seed.

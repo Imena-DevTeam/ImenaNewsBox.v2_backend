@@ -60,6 +60,14 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
+    @field_validator("cors_origins")
+    @classmethod
+    def _reject_wildcard_origin(cls, value: list[str]) -> list[str]:
+        # CORS runs with credentials, and the refresh/logout Origin check reads this list.
+        if "*" in value:
+            raise ValueError("CORS_ORIGINS must list explicit origins, never '*'")
+        return value
+
     @model_validator(mode="after")
     def _require_token_secrets_in_production(self) -> Self:
         if self.environment == "production":
