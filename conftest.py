@@ -42,7 +42,13 @@ def database_url() -> str:
             "TEST_DATABASE_URL is not set. Start the test database with "
             "`docker compose --profile test up -d db_test` and set it in .env."
         )
-    database = make_url(url).database or ""
+    parsed = make_url(url)
+    if not parsed.username or not parsed.database:
+        pytest.fail(
+            "TEST_DATABASE_URL has no user or database name. If it uses ${...} references, "
+            "define those variables above it in .env: they only expand from earlier lines."
+        )
+    database = parsed.database
     if not database.endswith("_test"):
         pytest.fail(
             f"TEST_DATABASE_URL must point at a database ending in '_test' (got {database!r})."
