@@ -1,5 +1,6 @@
 """HTTP routes: parse input, call the service, shape the response. No business logic here."""
 
+from http import HTTPStatus
 from typing import Annotated, Final
 
 from fastapi import APIRouter, Cookie, Depends, Request, Response
@@ -78,3 +79,17 @@ async def refresh(
     if refresh_token is None:
         raise NotAuthenticated()
     return _signed_in(response, await service.refresh_session(db, refresh_token))
+
+
+@router.post(
+    "/logout",
+    status_code=HTTPStatus.NO_CONTENT,
+    dependencies=[Depends(require_allowed_origin)],
+)
+async def logout(response: Response, db: DbSession, refresh_token: RefreshCookie = None) -> None:
+    """Log this device out: revoke its session and clear the cookie. Always succeeds."""
+    if refresh_token is not None:
+        await service.end_session(db, refresh_token)
+    response.delete_cookie(
+        REFRESH_COOKIE, path=REFRESH_COOKIE_PATH, secure=True, httponly=True, samesite="lax"
+    )

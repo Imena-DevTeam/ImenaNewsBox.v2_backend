@@ -73,6 +73,10 @@ No body. The browser sends the refresh cookie by itself, and the request must ca
 | unknown token, revoked or expired session, deactivated user | 401 `session_ended` |
 | missing or foreign `Origin` | 403 `origin_not_allowed` |
 
+### `POST /logout` — log this device out
+
+No body; it needs the cookie and our `Origin`, like refresh. It revokes this device's session (the replaced token works too) and clears the cookie, then returns 204. With no cookie or an unknown token it still returns 204, so the frontend can always treat logout as done. Other devices stay logged in. A missing or foreign `Origin` gets 403 `origin_not_allowed`.
+
 > **Frontend:** when a call returns 401 `token_expired`, call `/refresh` once and retry the call. On 409, retry the refresh after a short pause. On any other refresh error, send the user to the login page. Make concurrent calls share one refresh rather than each starting its own.
 
 ## Tokens

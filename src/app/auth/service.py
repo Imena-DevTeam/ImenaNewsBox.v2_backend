@@ -277,6 +277,27 @@ async def refresh_session(db: AsyncSession, refresh_token: str) -> SignedIn:
     )
 
 
+async def end_session(db: AsyncSession, refresh_token: str) -> None:
+    """Log this device out by revoking its session. Commits.
+
+    The replaced token works too (a tab may still hold it), and an unknown token does nothing:
+    logging out always succeeds.
+    """
+    token_hash = hash_refresh_token(refresh_token)
+    session = await db.scalar(
+        select(UserSession).where(
+            or_(
+                UserSession.token_hash == token_hash,
+                UserSession.previous_token_hash == token_hash,
+            ),
+            UserSession.revoked_at.is_(None),
+        )
+    )
+    if session is not None:
+        session.revoked_at = datetime.now(UTC)
+        await db.commit()
+
+
 # --- Device labels ---
 
 # First match wins, so more specific tokens come first (Edge and Opera also say "Chrome", and
