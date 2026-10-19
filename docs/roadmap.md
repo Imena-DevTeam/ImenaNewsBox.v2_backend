@@ -155,7 +155,6 @@ These are picked up after launch, each planned when it starts:
 
 - **Birthday emails:** a scheduled GitHub Actions workflow calls a protected endpoint. It's free and also wakes the app.
 - **Slack integration,** e.g. posting upcoming birthdays.
-- **Make mypy a required CI check.**
 - Anything new from the family committee. Add it to the Notion page first, then here.
 
 ---

@@ -82,12 +82,11 @@ Only **blog posts** are cached, and only on the **backend**.
 Every push and PR to `main` runs these checks, and all of them must pass before merging:
 
 1. `ruff check .` and `ruff format --check .`
-2. `pytest` against a Postgres service container
-3. `alembic upgrade head` on a fresh database, then `alembic check` (catches model changes without a migration)
-4. **Malware Guard:** the GitHub org was hit by malware in September 2026. This workflow fails if it finds the malware's persistence files (`.vscode/tasks.json`, `.bat` push scripts, `branch_structure.json`), any committed `.bat`/`.cmd`/`.ps1`/`.vbs` file, VS Code auto-run settings, obfuscated JavaScript, or "font" files that are really scripts.
-5. mypy (optional for now)
-
-Malware Guard (`malware-guard.yml`) and the CI workflow (`CI.yaml`: ruff and pytest with a Postgres service) are in place. The Alembic checks join CI once Alembic is set up.
+2. `mypy src` in strict mode (catches wrong argument types and bad calls that ruff can't see)
+3. `pytest` against a Postgres service container. `tests/test_imports.py` imports every module, so a module that crashes on import fails CI even before it has tests.
+4. `alembic upgrade head` on a fresh database, then `alembic check` (catches model changes without a migration)
+5. **Malware Guard:** the GitHub org was hit by malware in September 2026. This workflow fails if it finds the malware's persistence files (`.vscode/tasks.json`, `.bat` push scripts, `branch_structure.json`), any committed `.bat`/`.cmd`/`.ps1`/`.vbs` file, VS Code auto-run settings, obfuscated JavaScript, or "font" files that are really scripts.
+Malware Guard (`malware-guard.yml`) and the CI workflow (`CI.yaml`: ruff, mypy and pytest with a Postgres service) are in place. The Alembic checks join CI once Alembic is set up.
 
 > **Never commit** `.vscode/tasks.json`, VS Code auto-run settings or Windows script files. If you see any of these in the repo or on your machine, tell the team immediately.
 

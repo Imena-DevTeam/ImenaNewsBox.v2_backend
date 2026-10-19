@@ -47,13 +47,8 @@ alembic/                 # env.py imports every feature's models
 tests/                   # cross-feature / e2e tests
 conftest.py              # shared fixtures; at the repo root so it also applies to src/app/*/tests/
 scripts/                 # one-off operational scripts (v1 import, admin seed), not imported by the app
-<<<<<<< HEAD
-docs/                    # human-facing docs: architecture, domain, auth, infrastructure, decision log
-.github/workflows/       # CI (ruff + pytest) and Malware Guard
-=======
 docs/                    # human-facing docs: architecture, domain, auth, infrastructure, decision log, roadmap
-.github/workflows/       # CI (Malware Guard today)
->>>>>>> 2f58a18 (docs: add a phased roadmap for the four-developer team)
+.github/workflows/       # CI (ruff + mypy + pytest) and Malware Guard
 ```
 
 - **No controller layer.** The flow is router → service. Ask before adding a repository layer.
@@ -173,12 +168,11 @@ Locally, `docker compose` runs just the API and Postgres.
 ## CI (all required before merge)
 
 1. `ruff check .` and `ruff format --check .`
-2. `pytest` against a Postgres service container
-3. `alembic upgrade head` on a fresh DB, then `alembic check`
-4. **Malware Guard**, ported from v1's `.github/workflows/malware-guard.yml`. The GitHub org may still carry the 2026-09 malware. It fails on forbidden persistence files (`.vscode/tasks.json`, `*.bat` push scripts, `branch_structure.json`), VS Code auto-run settings (`runOn`, `folderOpen`, `allowAutomaticTasks`), obfuscated-code markers, and "font" files that are actually scripts.
-5. mypy (optional, not yet required)
-
-Malware Guard (`.github/workflows/malware-guard.yml`) and CI (`.github/workflows/CI.yaml`: steps 1 and 2) exist. Step 3 is added once Alembic is set up.
+2. `mypy src` (strict)
+3. `pytest` against a Postgres service container, including `tests/test_imports.py`, which imports every module under `src/app` so import-time crashes fail CI
+4. `alembic upgrade head` on a fresh DB, then `alembic check`
+5. **Malware Guard**, ported from v1's `.github/workflows/malware-guard.yml`. The GitHub org may still carry the 2026-09 malware. It fails on forbidden persistence files (`.vscode/tasks.json`, `*.bat` push scripts, `branch_structure.json`), VS Code auto-run settings (`runOn`, `folderOpen`, `allowAutomaticTasks`), obfuscated-code markers, and "font" files that are actually scripts.
+Malware Guard (`.github/workflows/malware-guard.yml`) and CI (`.github/workflows/CI.yaml`: steps 1–3) exist. Step 4 is added once Alembic is set up.
 
 ## Deployment
 

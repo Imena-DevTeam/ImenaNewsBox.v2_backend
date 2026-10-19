@@ -56,6 +56,9 @@ select = [
     "B",     # flake8-bugbear
     "ASYNC", # blocking calls inside async code
     "SIM",   # flake8-simplify
+    "PLE",   # pylint errors
+    "PLW",   # pylint warnings (e.g. `super.__init__` without parentheses)
+    "RUF",   # ruff-specific checks
 ]
 
 [tool.pytest.ini_options]

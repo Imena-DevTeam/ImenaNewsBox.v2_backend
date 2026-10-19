@@ -112,3 +112,6 @@ Committing in the dependency's teardown runs after FastAPI has sent the response
 
 **32. Database setup lives in a `core/database/` package, split by concern.**
 `base.py` holds the shared `Base`, `engine.py` the engine and session factory, and `session.py` the `get_session` dependency. Models import only `base.py`, so loading them (in Alembic or tests) doesn't create an engine as a side effect. The package's `__init__.py` re-exports nothing for the same reason.
+
+**33. CI runs strict mypy, a wider ruff rule set and an import check on every PR.**
+Two early auth PRs passed CI while crashing at runtime: `super.__init__` without parentheses, a column default of `func.now` instead of `func.now()`, and `SecretStr` secrets passed straight to PyJWT. Ruff's original rules (`E, W, F, I, UP, B, ASYNC, SIM`) don't check calls or types, mypy wasn't in CI, and no test imported the broken modules. So mypy (strict) is now a required CI step, ruff also selects `PLE`, `PLW` and `RUF`, and `tests/test_imports.py` imports every module under `src/app`. This was previously planned for after launch; it moved forward because it would have caught most of those bugs.
