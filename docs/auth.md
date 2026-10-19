@@ -118,6 +118,7 @@ No body; it needs the cookie and our `Origin`, like refresh. It revokes this dev
 - **Wrong, used, expired or exhausted** codes all get the same 401 `invalid_code`, so a guesser learns nothing.
 - **Storage:** codes are stored **hashed**, never in plain text. The hash is keyed by `CODE_SECRET`, because there are only a million possible codes: a plain hash could be reversed in seconds.
 - **Throttling** is stored in Postgres (there's no Redis).
+- **Cleanup:** there's no scheduler, so every login request deletes codes older than 24 hours and sessions that expired or were revoked more than 7 days ago.
 - **Sending:** codes are sent **during the request**. If the email provider fails, the user sees an error right away and can try again, instead of waiting for an email that never arrives. A code that couldn't be sent is deleted, so it doesn't trigger the 60-second cooldown.
 - **Concurrency:** issuing a code locks the user's row, and checking one locks the code's row, so two requests at once can't both get past the limits or both use the same code. The code is committed *before* the email is sent, so no lock is held while waiting for the provider.
 - **`email_verified_at`** is set the first time a code to an address works. It doesn't grant access; it tells us the address is real. When an admin changes someone's email, it's cleared and a code goes to the new address.

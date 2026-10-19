@@ -113,7 +113,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
 - **Background work is minimal:**
   - **Code emails are sent during the request,** with a short timeout and one retry. On failure the user gets a clear error and can resend.
   - **Old Cloudinary photo deletes** run as `BackgroundTasks`. A lost delete only leaves an unused image behind.
-  - **Expired codes and sessions** are ignored by their expiry time, and old rows are deleted as part of the login flow. No scheduler is needed.
+  - **Expired codes and sessions** are ignored by their expiry time, and old rows are deleted on every `POST /auth/login` (`delete_stale_rows`): codes after 24 hours (the daily code limit counts them), sessions 7 days after they expire or are revoked. No scheduler is needed.
   - **There's no jobs endpoint or scheduled workflow yet.** Add a scheduled GitHub Actions workflow only when a real scheduled feature arrives (e.g. birthday emails).
   - GET endpoints never trigger side effects.
 

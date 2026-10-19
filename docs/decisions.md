@@ -176,3 +176,6 @@ There's no Redis, so the limits are counted from `email_codes` rows. Five attemp
 
 **53. A 30-second grace window for the replaced refresh token, answered with 409.**
 Two tabs on one device often refresh at the same moment with the same cookie. The first wins and rotates the token; without a grace window the second would look like a stolen token and log the device out. Within 30 seconds of a rotation the replaced token gets 409 `refresh_conflict` and no tokens, so the browser (which by then holds the new cookie) simply retries. The grace answer never hands out tokens, so a thief replaying the old token inside the window gains nothing; after the window, reuse revokes the session. Refreshes of one session are serialised with a row lock.
+
+**54. Old codes and sessions are deleted by login requests, not by a scheduler.**
+The free plan has no worker or cron, and the tables stay tiny at family scale, so every `POST /auth/login` runs two small deletes: codes older than 24 hours (younger ones are still needed for the daily code limit) and sessions that ended more than 7 days ago (kept briefly so a recent sign-out or a reuse revocation can still be looked into). Expired rows are already ignored by their expiry time, so cleanup is only about size, and missing a run is harmless.

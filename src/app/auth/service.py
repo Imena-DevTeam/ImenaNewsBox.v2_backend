@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.exceptions import (
@@ -41,6 +41,10 @@ CODE_MAX_ATTEMPTS: Final = 5
 # Caps guessing: 10 codes x 5 attempts is 50 guesses a day out of a million possible codes.
 # It also stops one person's inbox (and our email quota) from being flooded.
 CODES_PER_DAY: Final = 10
+# The window `CODES_PER_DAY` counts over. Codes are deleted once they're older than this.
+CODE_LIMIT_WINDOW: Final = timedelta(days=1)
+# Revoked or expired sessions are deleted this long afterwards (see `delete_stale_rows`).
+ENDED_SESSION_RETENTION: Final = timedelta(days=7)
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +90,7 @@ async def issue_code(
             .where(
                 EmailCode.user_id == user.id,
                 EmailCode.purpose == purpose,
-                EmailCode.created_at > now - timedelta(days=1),
+                EmailCode.created_at > now - CODE_LIMIT_WINDOW,
             )
             .order_by(EmailCode.created_at.desc())
         )
@@ -170,6 +174,8 @@ async def start_login(
     get the same response as everyone else but no email, so the response doesn't reveal which
     accounts exist or who is an admin. A wrong password is the only error, and it's the same
     for unknown users and members (and costs the same Argon2 time).
+
+    Also clears out old codes and sessions (see `delete_stale_rows`). Commits.
     """
     user = await find_active_user(db, family_name)
     is_admin = user is not None and user.role.at_least(Role.ADMIN)
@@ -177,9 +183,28 @@ async def start_login(
         admin_hash = user.password_hash if user is not None and is_admin else None
         if not await verify_password(password, admin_hash):
             raise InvalidCredentials()
+    await delete_stale_rows(db)
     if user is None or (is_admin and password is None):
+        await db.commit()
         return
     await issue_code(db, sender, user, CodePurpose.LOGIN, to=user.email)
+
+
+async def delete_stale_rows(db: AsyncSession) -> None:
+    """Delete codes and sessions that can never be used again. Doesn't commit.
+
+    Runs on every login request instead of on a schedule, because there's no scheduler. Codes
+    are kept for a day, because the daily code limit counts them. Ended sessions are kept for
+    a week, so a recent sign-out or reuse revocation can still be looked into.
+    """
+    now = datetime.now(UTC)
+    await db.execute(delete(EmailCode).where(EmailCode.created_at < now - CODE_LIMIT_WINDOW))
+    ended_before = now - ENDED_SESSION_RETENTION
+    await db.execute(
+        delete(UserSession).where(
+            or_(UserSession.expires_at < ended_before, UserSession.revoked_at < ended_before)
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
