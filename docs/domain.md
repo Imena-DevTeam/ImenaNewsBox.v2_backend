@@ -46,7 +46,7 @@ These are implemented as **separate response schemas** (e.g. `UserPublicRead` an
 There's no separate "profile" table: profile fields live on `users`. A user has at least:
 
 - **family name:** unique (case-insensitive) and used to log in
-- **email:** where login codes are sent; `email_verified_at` records the first time a code to this address worked
+- **email:** where login codes are sent; `email_verified_at` records the first time a code to this address worked. Unique ignoring case, including deactivated users, so a code always reaches exactly one account.
 - **sub-family** and optional **promotion:** chosen from fixed lists (`sub_families` and `promotions` tables, filled in by migrations)
 - **role**, and a **password hash** (admins only)
 - **display name**, **birthday**, **profile photo** (stored in Cloudinary)
