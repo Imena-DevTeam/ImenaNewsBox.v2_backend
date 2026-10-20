@@ -59,6 +59,38 @@ There's no separate "profile" table: profile fields live on `users`. A user has 
 - **Changing an email** (admin only) clears `email_verified_at` and sends a code to the new address, which the user confirms while logged in.
 - **Soft delete only.** Deactivating sets `deactivated_at`, signs the user out everywhere, and blocks future logins. Deactivated users disappear from member listings, but their family name stays reserved and their wishes are kept.
 
+### Users API
+
+All under `/api/v1/users`, and all need an access token.
+
+| Endpoint | Who | Returns |
+|---|---|---|
+| `GET /` | any member | the directory: active members, alphabetical by display name, paginated (`?page=&limit=`), as `UserPublicRead` |
+| `GET /{id}` | any member | one active member as `UserPublicRead`; 404 `user_not_found` for unknown or deactivated users |
+| `GET /sub-families`, `GET /promotions` | any member | the fixed lookup lists, sorted by name. They're short and fixed, so they're plain lists, not pages |
+| `GET /me` | any member | your own account as `UserRead` |
+| `GET /{id}/account` | the user themselves, or an admin | one account as `UserRead`; admins also see deactivated users. Anyone else gets 403 `not_owner` |
+| `GET /accounts` | admins | every active account as `UserRead`, paginated; add `?include_deactivated=true` for deactivated ones too |
+| `POST /` | admins | registers a member (201, `UserRead`): `{family_name, display_name, email, sub_family_id, promotion_id?, birthday?, role?}`. Role defaults to `member`; an admin also needs a password before they can log in |
+| `PATCH /{id}` | admins | changes any fields of any user, deactivated ones included; send only what changes (`promotion_id` and `birthday` can be `null`). Returns `UserRead` |
+| `POST /{id}/deactivate` | admins | soft-deletes the user and signs them out of every device in the same transaction, so their next request fails. Repeating it changes nothing; admins can't deactivate themselves (409 `cannot_deactivate_self`) |
+| `POST /{id}/reactivate` | admins | lets them log in again. Old sessions stay revoked, so each device logs in from scratch |
+| `PUT /{id}/password` | admins | sets an admin's password, their own included (`{password}`, 12 to 256 characters; 204). For an admin who has none yet or forgot it; 409 `not_an_admin` for anyone else. Their sessions aren't touched |
+
+`UserPublicRead` is `{id, family_name, display_name, photo_url, sub_family: {id, name}, promotion: {id, name} | null, birthday: {month, day} | null}`. The year of birth is dropped inside the schema itself, so no route can send it to other members by mistake.
+
+`UserRead` adds the private fields: the full `birthday` date, `email`, `email_verified_at`, `role`, `has_password` (admins can't log in until it's true), `deactivated_at` and `created_at`. The password hash is never in any response.
+
+**Rules when an admin changes a user:**
+- **A new email** (not just different capitals) clears `email_verified_at`. Sending a confirmation code to the new address comes with the profile step.
+- **Demoting an admin** removes their password, since only admins have one. **Promoting** someone to admin doesn't give them one: set it before they log in.
+- **Admins can't change their own role** (409 `cannot_change_own_role`), so the last admin can't demote themselves and leave nobody to manage users. They can change their other fields.
+
+**Errors when creating or changing a user:**
+- 409 `family_name_taken` or `email_taken`, ignoring case and including deactivated users. These come from the database's unique indexes, so two admins saving at once can't both win.
+- 400 `unknown_sub_family` or `unknown_promotion`.
+- 422 for invalid input: a malformed email, a birthday in the future or before 1900, a blank name, an unknown role, or **any unexpected field** (so a typo such as `"pasword"` is an error, not silently ignored).
+
 ## Birthdays and wishes
 
 - A wish has a **sender**, a **recipient** and the **birthday year** it's for.

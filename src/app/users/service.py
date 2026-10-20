@@ -1,16 +1,195 @@
 """Business logic and data access."""
 
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Final
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.auth.service import revoke_all_sessions
 from app.core.security import hash_password
-from app.users.models import Role, SubFamily, User
+from app.users.exceptions import (
+    CannotChangeOwnRole,
+    CannotDeactivateSelf,
+    EmailTaken,
+    FamilyNameTaken,
+    NotAnAdmin,
+    UnknownPromotion,
+    UnknownSubFamily,
+    UserNotFound,
+)
+from app.users.models import Promotion, Role, SubFamily, User
+from app.users.schemas import MIN_ADMIN_PASSWORD_LENGTH, UserCreate, UserUpdate
 
-MIN_ADMIN_PASSWORD_LENGTH: Final = 12
+# --- Reading ---
+
+
+def _with_lookups(statement: Select[User]) -> Select[User]:
+    # Read schemas include the sub-family and promotion. populate_existing also fills them
+    # in for users this session already holds without them.
+    return statement.options(
+        selectinload(User.sub_family), selectinload(User.promotion)
+    ).execution_options(populate_existing=True)
+
+
+async def list_users(
+    db: AsyncSession, *, offset: int, limit: int, include_deactivated: bool = False
+) -> tuple[list[User], int]:
+    """Users in alphabetical order of display name; deactivated ones only if asked."""
+    conditions = [] if include_deactivated else [User.deactivated_at.is_(None)]
+    total = await db.scalar(select(func.count()).select_from(User).where(*conditions))
+    users = await db.scalars(
+        _with_lookups(
+            select(User)
+            .where(*conditions)
+            .order_by(func.lower(User.display_name), User.id)
+            .offset(offset)
+            .limit(limit)
+        )
+    )
+    return list(users), total or 0
+
+
+async def get_user(
+    db: AsyncSession, user_id: uuid.UUID, *, include_deactivated: bool = False
+) -> User:
+    """One user with their sub-family and promotion. Raises `UserNotFound`."""
+    conditions = [] if include_deactivated else [User.deactivated_at.is_(None)]
+    user = await db.scalar(_with_lookups(select(User).where(User.id == user_id, *conditions)))
+    if user is None:
+        raise UserNotFound()
+    return user
+
+
+async def list_sub_families(db: AsyncSession) -> list[SubFamily]:
+    return list(await db.scalars(select(SubFamily).order_by(SubFamily.name)))
+
+
+async def list_promotions(db: AsyncSession) -> list[Promotion]:
+    return list(await db.scalars(select(Promotion).order_by(Promotion.name)))
+
+
+# --- Creating and changing users ---
+
+# The unique indexes behind each "taken" error (see `users/models.py`).
+_UNIQUE_ERRORS: Final = {
+    "uq_users_family_name_lower": FamilyNameTaken,
+    "uq_users_email_lower": EmailTaken,
+}
+
+
+@asynccontextmanager
+async def _unique_fields(db: AsyncSession) -> AsyncIterator[None]:
+    """Make user changes inside this block. A duplicate family name or email, caught by the
+    database's unique indexes, becomes a 409 instead of a crash.
+
+    The block runs in a savepoint, so a duplicate only undoes these changes. Make no other
+    changes before it: entering the savepoint flushes them outside its protection.
+    """
+    try:
+        async with db.begin_nested():
+            yield
+    except IntegrityError as exc:
+        diag = getattr(exc.orig, "diag", None)
+        error = _UNIQUE_ERRORS.get(getattr(diag, "constraint_name", None) or "")
+        if error is None:
+            raise
+        raise error() from exc
+
+
+async def _check_lookups(
+    db: AsyncSession, *, sub_family_id: int | None, promotion_id: int | None
+) -> None:
+    if sub_family_id is not None and await db.get(SubFamily, sub_family_id) is None:
+        raise UnknownSubFamily()
+    if promotion_id is not None and await db.get(Promotion, promotion_id) is None:
+        raise UnknownPromotion()
+
+
+async def create_user(db: AsyncSession, data: UserCreate) -> User:
+    """Register a member (admins only). Commits."""
+    await _check_lookups(db, sub_family_id=data.sub_family_id, promotion_id=data.promotion_id)
+    user = User(**data.model_dump())
+    async with _unique_fields(db):
+        db.add(user)
+    await db.commit()
+    return await get_user(db, user.id)
+
+
+async def update_user(
+    db: AsyncSession, actor: User, user_id: uuid.UUID, changes: UserUpdate
+) -> User:
+    """Change a user's fields (admins only, deactivated users included). Commits.
+
+    - A new email (not just different capitals) clears `email_verified_at`.
+    - Demoting an admin removes their password: only admins have one.
+    - Admins can't change their own role, so the last admin can't lock everyone out.
+    """
+    user = await get_user(db, user_id, include_deactivated=True)
+    fields = changes.model_dump(exclude_unset=True)
+
+    new_role = fields.get("role")
+    if new_role is not None and new_role != user.role:
+        if user.id == actor.id:
+            raise CannotChangeOwnRole()
+        if not new_role.at_least(Role.ADMIN):
+            fields["password_hash"] = None
+    new_email = fields.get("email")
+    if new_email is not None and new_email.lower() != user.email.lower():
+        fields["email_verified_at"] = None
+    await _check_lookups(
+        db, sub_family_id=fields.get("sub_family_id"), promotion_id=fields.get("promotion_id")
+    )
+
+    async with _unique_fields(db):
+        for name, value in fields.items():
+            setattr(user, name, value)
+    await db.commit()
+    return await get_user(db, user.id, include_deactivated=True)
+
+
+async def deactivate_user(db: AsyncSession, actor: User, user_id: uuid.UUID) -> User:
+    """Soft-delete a user: block logins and sign them out everywhere, at once. Commits.
+
+    Their family name and email stay reserved, and their wishes are kept. Doing it again
+    changes nothing. Admins can't deactivate themselves.
+    """
+    user = await get_user(db, user_id, include_deactivated=True)
+    if user.id == actor.id:
+        raise CannotDeactivateSelf()
+    if user.deactivated_at is None:
+        user.deactivated_at = datetime.now(UTC)
+        await revoke_all_sessions(db, user.id)
+        await db.commit()
+    return await get_user(db, user.id, include_deactivated=True)
+
+
+async def reactivate_user(db: AsyncSession, user_id: uuid.UUID) -> User:
+    """Let a deactivated user log in again. Their old sessions stay revoked. Commits."""
+    user = await get_user(db, user_id, include_deactivated=True)
+    if user.deactivated_at is not None:
+        user.deactivated_at = None
+        await db.commit()
+    return await get_user(db, user.id, include_deactivated=True)
+
+
+async def set_admin_password(db: AsyncSession, user_id: uuid.UUID, password: str) -> None:
+    """Give an admin a new password (admins only, their own included). Commits.
+
+    For admins who have none yet (promoted or imported from v1) or who forgot theirs. Their
+    sessions stay as they are: the password is only checked when a new device logs in.
+    """
+    user = await get_user(db, user_id, include_deactivated=True)
+    if not user.role.at_least(Role.ADMIN):
+        raise NotAnAdmin()
+    user.password_hash = await hash_password(password)
+    await db.commit()
 
 
 # --- First admin ---

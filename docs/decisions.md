@@ -188,3 +188,9 @@ A code proves the person controls the email address; a Google ID token with `ema
 
 **57. The first-admin seed refuses rather than guesses.**
 The seed is the only way to create a user without an admin, so it's deliberately strict. Running it again with the same settings does nothing (it never resets the password). If the family name belongs to anyone other than that active admin with that email, or the email belongs to another user, it stops instead of promoting or overwriting someone. Every user needs a sub-family, but the list is only seeded by a migration once its values are agreed, so `FIRST_ADMIN_SUB_FAMILY` must name an existing one: the seed never invents a sub-family. The password must be at least 12 characters.
+
+**58. Uniqueness errors come from the database, inside a savepoint.**
+Creating or changing a user applies the change inside a savepoint and maps the unique-index violations (`uq_users_family_name_lower`, `uq_users_email_lower`) to 409 `family_name_taken` / `email_taken`. Checking first and then saving would let two admins saving at once both pass the check. The savepoint means a duplicate only undoes that change, not the rest of the request's transaction. Sub-families and promotions are checked up front instead, because "doesn't exist" deserves its own clear error and the lists never shrink.
+
+**59. Admins can't change their own role.**
+Otherwise the only admin could demote themselves (or be tricked into it) and nobody could manage users or reach the seed again without the database. Another admin has to do it. Demotion also clears the password hash, since passwords are only for admins.
