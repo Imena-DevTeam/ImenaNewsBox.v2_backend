@@ -59,6 +59,18 @@ There's no separate "profile" table: profile fields live on `users`. A user has 
 - **Changing an email** (admin only) clears `email_verified_at` and sends a code to the new address, which the user confirms while logged in.
 - **Soft delete only.** Deactivating sets `deactivated_at`, signs the user out everywhere, and blocks future logins. Deactivated users disappear from member listings, but their family name stays reserved and their wishes are kept.
 
+### Users API
+
+All under `/api/v1/users`, and all need an access token.
+
+| Endpoint | Who | Returns |
+|---|---|---|
+| `GET /` | any member | the directory: active members, alphabetical by display name, paginated (`?page=&limit=`), as `UserPublicRead` |
+| `GET /{id}` | any member | one active member as `UserPublicRead`; 404 `user_not_found` for unknown or deactivated users |
+| `GET /sub-families`, `GET /promotions` | any member | the fixed lookup lists, sorted by name. They're short and fixed, so they're plain lists, not pages |
+
+`UserPublicRead` is `{id, family_name, display_name, photo_url, sub_family: {id, name}, promotion: {id, name} | null, birthday: {month, day} | null}`. The year of birth is dropped inside the schema itself, so no route can send it to other members by mistake.
+
 ## Birthdays and wishes
 
 - A wish has a **sender**, a **recipient** and the **birthday year** it's for.

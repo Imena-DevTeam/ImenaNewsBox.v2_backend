@@ -1,16 +1,67 @@
 """Business logic and data access."""
 
+import uuid
 from enum import StrEnum
 from typing import Final
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.security import hash_password
-from app.users.models import Role, SubFamily, User
+from app.users.exceptions import UserNotFound
+from app.users.models import Promotion, Role, SubFamily, User
 
 MIN_ADMIN_PASSWORD_LENGTH: Final = 12
+
+
+# --- Reading ---
+
+
+def _with_lookups(statement: Select[User]) -> Select[User]:
+    # Read schemas include the sub-family and promotion. populate_existing also fills them
+    # in for users this session already holds without them.
+    return statement.options(
+        selectinload(User.sub_family), selectinload(User.promotion)
+    ).execution_options(populate_existing=True)
+
+
+async def list_users(
+    db: AsyncSession, *, offset: int, limit: int, include_deactivated: bool = False
+) -> tuple[list[User], int]:
+    """Users in alphabetical order of display name; deactivated ones only if asked."""
+    conditions = [] if include_deactivated else [User.deactivated_at.is_(None)]
+    total = await db.scalar(select(func.count()).select_from(User).where(*conditions))
+    users = await db.scalars(
+        _with_lookups(
+            select(User)
+            .where(*conditions)
+            .order_by(func.lower(User.display_name), User.id)
+            .offset(offset)
+            .limit(limit)
+        )
+    )
+    return list(users), total or 0
+
+
+async def get_user(
+    db: AsyncSession, user_id: uuid.UUID, *, include_deactivated: bool = False
+) -> User:
+    """One user with their sub-family and promotion. Raises `UserNotFound`."""
+    conditions = [] if include_deactivated else [User.deactivated_at.is_(None)]
+    user = await db.scalar(_with_lookups(select(User).where(User.id == user_id, *conditions)))
+    if user is None:
+        raise UserNotFound()
+    return user
+
+
+async def list_sub_families(db: AsyncSession) -> list[SubFamily]:
+    return list(await db.scalars(select(SubFamily).order_by(SubFamily.name)))
+
+
+async def list_promotions(db: AsyncSession) -> list[Promotion]:
+    return list(await db.scalars(select(Promotion).order_by(Promotion.name)))
 
 
 # --- First admin ---
