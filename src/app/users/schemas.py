@@ -6,13 +6,46 @@ Users have two separate read schemas, never one with fields hidden on the fly:
 """
 
 import uuid
-from datetime import date, datetime
-from typing import Any
+from datetime import UTC, date, datetime
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
+from app.auth.schemas import FamilyName
 from app.core.pagination import PageParams
-from app.users.models import Role
+from app.users.models import DISPLAY_NAME_MAX_LENGTH, EMAIL_MAX_LENGTH, Role
+
+EARLIEST_BIRTHDAY = date(1900, 1, 1)
+
+
+def _check_email_length(email: str) -> str:
+    if len(email) > EMAIL_MAX_LENGTH:
+        raise ValueError(f"must be at most {EMAIL_MAX_LENGTH} characters")
+    return email
+
+
+def _check_birthday(birthday: date) -> date:
+    if birthday > datetime.now(UTC).date():
+        raise ValueError("can't be in the future")
+    if birthday < EARLIEST_BIRTHDAY:
+        raise ValueError(f"can't be before {EARLIEST_BIRTHDAY.year}")
+    return birthday
+
+
+DisplayName = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=DISPLAY_NAME_MAX_LENGTH)
+]
+# email-validator (with FastAPI) checks the format and lowercases the domain.
+Email = Annotated[EmailStr, AfterValidator(_check_email_length)]
+Birthday = Annotated[date, AfterValidator(_check_birthday)]
 
 
 class SubFamilyRead(BaseModel):
@@ -78,3 +111,18 @@ class UserRead(BaseModel):
 
 class AccountListParams(PageParams):
     include_deactivated: bool = Field(default=False, description="Also list deactivated users.")
+
+
+class UserCreate(BaseModel):
+    """Admins only: there's no self-signup. Admins get a password separately."""
+
+    # A misspelt or unexpected field (say, "password") is an error, not silently dropped.
+    model_config = ConfigDict(extra="forbid")
+
+    family_name: FamilyName
+    display_name: DisplayName
+    email: Email
+    sub_family_id: int
+    promotion_id: int | None = None
+    birthday: Birthday | None = None
+    role: Role = Role.MEMBER

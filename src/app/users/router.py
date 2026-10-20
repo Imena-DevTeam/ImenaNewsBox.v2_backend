@@ -5,6 +5,7 @@ try to read them as user IDs.
 """
 
 import uuid
+from http import HTTPStatus
 from typing import Annotated
 
 from fastapi import APIRouter, Query
@@ -18,6 +19,7 @@ from app.users.schemas import (
     AccountListParams,
     PromotionRead,
     SubFamilyRead,
+    UserCreate,
     UserPublicRead,
     UserRead,
 )
@@ -31,6 +33,12 @@ async def list_users(user: CurrentUser, db: DbSession, params: Pagination) -> Pa
     users, total = await service.list_users(db, offset=params.offset, limit=params.limit)
     items = [UserPublicRead.model_validate(member) for member in users]
     return Page.build(items, params=params, total=total)
+
+
+@router.post("", status_code=HTTPStatus.CREATED)
+async def create_user(body: UserCreate, admin: AdminUser, db: DbSession) -> UserRead:
+    """Admins: register a member. To make an admin who can log in, also set a password."""
+    return UserRead.model_validate(await service.create_user(db, body))
 
 
 @router.get("/me")

@@ -1,6 +1,8 @@
 """Business logic and data access."""
 
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from enum import StrEnum
 from typing import Final
 
@@ -10,8 +12,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.security import hash_password
-from app.users.exceptions import UserNotFound
+from app.users.exceptions import (
+    EmailTaken,
+    FamilyNameTaken,
+    UnknownPromotion,
+    UnknownSubFamily,
+    UserNotFound,
+)
 from app.users.models import Promotion, Role, SubFamily, User
+from app.users.schemas import UserCreate
 
 MIN_ADMIN_PASSWORD_LENGTH: Final = 12
 
@@ -62,6 +71,53 @@ async def list_sub_families(db: AsyncSession) -> list[SubFamily]:
 
 async def list_promotions(db: AsyncSession) -> list[Promotion]:
     return list(await db.scalars(select(Promotion).order_by(Promotion.name)))
+
+
+# --- Creating and changing users ---
+
+# The unique indexes behind each "taken" error (see `users/models.py`).
+_UNIQUE_ERRORS: Final = {
+    "uq_users_family_name_lower": FamilyNameTaken,
+    "uq_users_email_lower": EmailTaken,
+}
+
+
+@asynccontextmanager
+async def _unique_fields(db: AsyncSession) -> AsyncIterator[None]:
+    """Make user changes inside this block. A duplicate family name or email, caught by the
+    database's unique indexes, becomes a 409 instead of a crash.
+
+    The block runs in a savepoint, so a duplicate only undoes these changes. Make no other
+    changes before it: entering the savepoint flushes them outside its protection.
+    """
+    try:
+        async with db.begin_nested():
+            yield
+    except IntegrityError as exc:
+        diag = getattr(exc.orig, "diag", None)
+        error = _UNIQUE_ERRORS.get(getattr(diag, "constraint_name", None) or "")
+        if error is None:
+            raise
+        raise error() from exc
+
+
+async def _check_lookups(
+    db: AsyncSession, *, sub_family_id: int | None, promotion_id: int | None
+) -> None:
+    if sub_family_id is not None and await db.get(SubFamily, sub_family_id) is None:
+        raise UnknownSubFamily()
+    if promotion_id is not None and await db.get(Promotion, promotion_id) is None:
+        raise UnknownPromotion()
+
+
+async def create_user(db: AsyncSession, data: UserCreate) -> User:
+    """Register a member (admins only). Commits."""
+    await _check_lookups(db, sub_family_id=data.sub_family_id, promotion_id=data.promotion_id)
+    user = User(**data.model_dump())
+    async with _unique_fields(db):
+        db.add(user)
+    await db.commit()
+    return await get_user(db, user.id)
 
 
 # --- First admin ---
