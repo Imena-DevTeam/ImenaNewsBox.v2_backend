@@ -171,6 +171,7 @@ uv run alembic revision --autogenerate -m "msg"   # then review the generated fi
 uv run alembic upgrade head
 uv run alembic check                          # fails if models drift from migrations
 uv add <pkg> / uv add --dev <pkg>             # commit pyproject.toml + uv.lock together
+uv run python scripts/seed_admin.py           # first admin from FIRST_ADMIN_* (docs/infrastructure.md)
 ```
 
 Locally, `docker compose` runs just the API and Postgres.
@@ -234,6 +235,6 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 ## Current state (not built yet)
 
 The layout, dependencies, tool config, CI, settings and the DB session are in place, but every feature module is still a placeholder. Still missing:
-- **Done:** the login flow (`POST /api/v1/auth/login`, `/verify`, `/google`, `/refresh`, `/logout`; see `docs/auth.md`), `core/google.py`, `config.py`, `database/`, Alembic (async `env.py`; first migration: `users`, `sub_families`, `promotions`), `users/models.py` (`Role`, `User`, `SubFamily`, `Promotion`; the lookup lists are still empty), `auth/models.py` (`UserSession`, `EmailCode`) and `auth/dependencies.py` (current user, roles, ownership), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, the `core/` wrappers (`email.py` with no provider yet, `media.py`, `sanity.py`) and their fakes, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
+- **Done:** the login flow (`POST /api/v1/auth/login`, `/verify`, `/google`, `/refresh`, `/logout`; see `docs/auth.md`), listing and revoking sessions (`GET /auth/sessions`, `DELETE /auth/sessions/{id}`), the first-admin seed (`users/service.py` `seed_first_admin`, `scripts/seed_admin.py`), `core/google.py`, `config.py`, `database/`, Alembic (async `env.py`; first migration: `users`, `sub_families`, `promotions`), `users/models.py` (`Role`, `User`, `SubFamily`, `Promotion`; the lookup lists are still empty), `auth/models.py` (`UserSession`, `EmailCode`) and `auth/dependencies.py` (current user, roles, ownership), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, the `core/` wrappers (`email.py` with no provider yet, `media.py`, `sanity.py`) and their fakes, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
 - **Code:** the real email provider (gated) and the Sanity webhook check (with posts).
-- **Features:** the rest of auth (listing and revoking sessions), and users, wishes and posts beyond their models, plus `scripts/import_v1.py` and the admin seed.
+- **Features:** users, wishes and posts beyond their models (revoking all of a user's sessions comes with deactivation in the users step), plus `scripts/import_v1.py`.
