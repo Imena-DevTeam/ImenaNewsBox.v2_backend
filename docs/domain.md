@@ -68,8 +68,13 @@ All under `/api/v1/users`, and all need an access token.
 | `GET /` | any member | the directory: active members, alphabetical by display name, paginated (`?page=&limit=`), as `UserPublicRead` |
 | `GET /{id}` | any member | one active member as `UserPublicRead`; 404 `user_not_found` for unknown or deactivated users |
 | `GET /sub-families`, `GET /promotions` | any member | the fixed lookup lists, sorted by name. They're short and fixed, so they're plain lists, not pages |
+| `GET /me` | any member | your own account as `UserRead` |
+| `GET /{id}/account` | the user themselves, or an admin | one account as `UserRead`; admins also see deactivated users. Anyone else gets 403 `not_owner` |
+| `GET /accounts` | admins | every active account as `UserRead`, paginated; add `?include_deactivated=true` for deactivated ones too |
 
 `UserPublicRead` is `{id, family_name, display_name, photo_url, sub_family: {id, name}, promotion: {id, name} | null, birthday: {month, day} | null}`. The year of birth is dropped inside the schema itself, so no route can send it to other members by mistake.
+
+`UserRead` adds the private fields: the full `birthday` date, `email`, `email_verified_at`, `role`, `has_password` (admins can't log in until it's true), `deactivated_at` and `created_at`. The password hash is never in any response.
 
 ## Birthdays and wishes
 

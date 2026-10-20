@@ -97,6 +97,11 @@ class User(TimestampMixin, Base):
     def is_active(self) -> bool:
         return self.deactivated_at is None
 
+    @property
+    def has_password(self) -> bool:
+        """Whether an admin can log in yet. Says nothing about the password itself."""
+        return self.password_hash is not None
+
     def __repr__(self) -> str:
         # Only the id: names and emails stay out of logs and tracebacks.
         return f"<User {self.id}>"
