@@ -1,6 +1,6 @@
 """Exceptions raised by this feature."""
 
-from app.core.exceptions import Conflict, Forbidden, TooManyRequests, Unauthorized
+from app.core.exceptions import Conflict, Forbidden, NotFound, TooManyRequests, Unauthorized
 
 
 class NotAuthenticated(Unauthorized):
@@ -79,3 +79,8 @@ class GoogleAccountNotRegistered(Unauthorized):
 class AdminPasswordRequired(Unauthorized):
     code = "admin_password_required"
     default_message = "Admins also need their password to sign in with Google."
+
+
+class SessionNotFound(NotFound):
+    code = "session_not_found"
+    default_message = "That session doesn't exist."

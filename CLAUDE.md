@@ -142,7 +142,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
 - All config goes through `core/config.py` (pydantic-settings). Add every new variable to `.env.example` with a placeholder.
 - **Errors:** services raise `AppError` subclasses from `core/exceptions.py` (`BadRequest`, `Unauthorized`, `Forbidden`, `NotFound`, `Conflict`, `TooManyRequests`). A feature exception subclasses one of them and overrides `code` and `default_message`. Never raise `HTTPException` or return 200 with an error body. Every error response is `{"error": {"code", "message"}}`; validation errors add `details` (field + message, never the submitted input).
 - The API design is new: use RESTful resource paths under `/api/v1` (e.g. `/api/v1/users/{id}`). Each feature's `router.py` exposes `router = APIRouter(prefix="/<feature>")`, and `main.py` mounts it under `/api/v1`.
-- List endpoints take `params: Pagination` and return `Page[T]` from `core/pagination.py` (`page` from 1, `limit` default 20, max 100).
+- List endpoints take `params: Pagination` and return `Page[T]` from `core/pagination.py` (`page` from 1, `limit` default 20, max 100). A list with filters subclasses `PageParams` and takes `Annotated[ItsParams, Query()]`: FastAPI only spreads a model into query parameters when it's the endpoint's only query input, so never add a separate `Query` parameter next to `Pagination`.
 - Use `logging`, never `print`. Never log request bodies, codes, tokens or emails.
 - **Tests:**
   - Co-locate them in `<feature>/tests/` and run against real Postgres (never SQLite) with per-test transaction rollback via root `conftest.py` fixtures: `db_session` (services may `commit()`; it only releases a savepoint) and `client` (an `httpx.AsyncClient` whose requests use that session).
@@ -171,6 +171,7 @@ uv run alembic revision --autogenerate -m "msg"   # then review the generated fi
 uv run alembic upgrade head
 uv run alembic check                          # fails if models drift from migrations
 uv add <pkg> / uv add --dev <pkg>             # commit pyproject.toml + uv.lock together
+uv run python scripts/seed_admin.py           # first admin from FIRST_ADMIN_* (docs/infrastructure.md)
 ```
 
 Locally, `docker compose` runs just the API and Postgres.
@@ -234,6 +235,6 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 ## Current state (not built yet)
 
 The layout, dependencies, tool config, CI, settings and the DB session are in place, but every feature module is still a placeholder. Still missing:
-- **Done:** the login flow (`POST /api/v1/auth/login`, `/verify`, `/google`, `/refresh`, `/logout`; see `docs/auth.md`), `core/google.py`, `config.py`, `database/`, Alembic (async `env.py`; first migration: `users`, `sub_families`, `promotions`), `users/models.py` (`Role`, `User`, `SubFamily`, `Promotion`; the lookup lists are still empty), `auth/models.py` (`UserSession`, `EmailCode`) and `auth/dependencies.py` (current user, roles, ownership), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, the `core/` wrappers (`email.py` with no provider yet, `media.py`, `sanity.py`) and their fakes, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
+- **Done:** the login flow (`POST /api/v1/auth/login`, `/verify`, `/google`, `/refresh`, `/logout`; see `docs/auth.md`), listing and revoking sessions (`GET /auth/sessions`, `DELETE /auth/sessions/{id}`), the first-admin seed (`users/service.py` `seed_first_admin`, `scripts/seed_admin.py`), `core/google.py`, `config.py`, `database/`, Alembic (async `env.py`; first migration: `users`, `sub_families`, `promotions`), `users/models.py` (`Role`, `User`, `SubFamily`, `Promotion`; the lookup lists are still empty), `auth/models.py` (`UserSession`, `EmailCode`) and `auth/dependencies.py` (current user, roles, ownership), the DB test fixtures in `conftest.py`, CI (ruff, mypy, Alembic checks, pytest), `Dockerfile`, `docker-compose.yml`, `core/exceptions.py`, `core/pagination.py`, `core/security.py`, the `core/` wrappers (`email.py` with no provider yet, `media.py`, `sanity.py`) and their fakes, and `main.py` wiring (CORS, no-store, error handlers, empty feature routers under `/api/v1`).
 - **Code:** the real email provider (gated) and the Sanity webhook check (with posts).
-- **Features:** the rest of auth (listing and revoking sessions), and users, wishes and posts beyond their models, plus `scripts/import_v1.py` and the admin seed.
+- **Features:** users, wishes and posts beyond their models (revoking all of a user's sessions comes with deactivation in the users step), plus `scripts/import_v1.py`.

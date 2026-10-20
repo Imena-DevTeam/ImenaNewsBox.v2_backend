@@ -6,6 +6,10 @@ Usage in a router:
     async def list_users(params: Pagination, session: DbSession) -> Page[UserPublicRead]:
         items, total = await service.list_users(session, offset=params.offset, limit=params.limit)
         return Page.build(items, params=params, total=total)
+
+FastAPI only spreads a model into separate query parameters when it's the endpoint's only
+query input. An endpoint with filters therefore subclasses `PageParams` and takes
+`Annotated[ItsParams, Query()]`, never `Pagination` plus another `Query` parameter.
 """
 
 from collections.abc import Sequence

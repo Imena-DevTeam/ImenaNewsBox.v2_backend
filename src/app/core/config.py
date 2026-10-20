@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     first_admin_family_name: str = ""
     first_admin_email: str = ""
     first_admin_password: SecretStr = SecretStr("")
+    # The name of an existing sub-family (they come from a migration); it's never created.
+    first_admin_sub_family: str = ""
 
     # Email (provider not chosen yet)
     email_from: str = ""

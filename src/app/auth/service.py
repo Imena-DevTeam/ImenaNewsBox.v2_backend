@@ -1,6 +1,7 @@
 """Business logic and data access."""
 
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
@@ -8,6 +9,7 @@ from typing import Final
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.dependencies import require_owner_or_admin
 from app.auth.exceptions import (
     AdminPasswordRequired,
     CodeRecentlySent,
@@ -16,6 +18,7 @@ from app.auth.exceptions import (
     InvalidCredentials,
     RefreshConflict,
     SessionEnded,
+    SessionNotFound,
     TooManyCodes,
 )
 from app.auth.models import DEVICE_LABEL_MAX_LENGTH, EmailCode, UserSession
@@ -357,6 +360,44 @@ async def end_session(db: AsyncSession, refresh_token: str) -> None:
         )
     )
     if session is not None:
+        session.revoked_at = datetime.now(UTC)
+        await db.commit()
+
+
+# --- Listing and revoking sessions ---
+
+
+async def list_sessions(
+    db: AsyncSession, user_id: uuid.UUID, *, offset: int, limit: int
+) -> tuple[list[UserSession], int]:
+    """A user's active sessions (not revoked, not expired), most recently used first."""
+    active = (
+        UserSession.user_id == user_id,
+        UserSession.revoked_at.is_(None),
+        UserSession.expires_at > datetime.now(UTC),
+    )
+    total = await db.scalar(select(func.count()).select_from(UserSession).where(*active))
+    sessions = await db.scalars(
+        select(UserSession)
+        .where(*active)
+        .order_by(UserSession.last_used_at.desc(), UserSession.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(sessions), total or 0
+
+
+async def revoke_session(db: AsyncSession, actor: User, session_id: uuid.UUID) -> None:
+    """Sign one device out. Its owner or an admin may do it. Commits.
+
+    Revoking a session that already ended does nothing, so repeating the request is safe.
+    The device's access token stops working on its next request.
+    """
+    session = await db.get(UserSession, session_id)
+    if session is None:
+        raise SessionNotFound()
+    require_owner_or_admin(actor, session.user_id)
+    if session.revoked_at is None:
         session.revoked_at = datetime.now(UTC)
         await db.commit()
 
