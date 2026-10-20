@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_owner_or_admin
@@ -400,6 +400,15 @@ async def revoke_session(db: AsyncSession, actor: User, session_id: uuid.UUID) -
     if session.revoked_at is None:
         session.revoked_at = datetime.now(UTC)
         await db.commit()
+
+
+async def revoke_all_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Sign a user out of every device (used when they're deactivated). Doesn't commit."""
+    await db.execute(
+        update(UserSession)
+        .where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(UTC))
+    )
 
 
 # --- Device labels ---

@@ -98,3 +98,15 @@ async def update_user(
 ) -> UserRead:
     """Admins: change any of a user's fields. Send only what changes."""
     return UserRead.model_validate(await service.update_user(db, admin, user_id, body))
+
+
+@router.post("/{user_id}/deactivate")
+async def deactivate_user(user_id: uuid.UUID, admin: AdminUser, db: DbSession) -> UserRead:
+    """Admins: block a user's logins and sign them out of every device straight away."""
+    return UserRead.model_validate(await service.deactivate_user(db, admin, user_id))
+
+
+@router.post("/{user_id}/reactivate")
+async def reactivate_user(user_id: uuid.UUID, admin: AdminUser, db: DbSession) -> UserRead:
+    """Admins: let a deactivated user log in again (on each device, from scratch)."""
+    return UserRead.model_validate(await service.reactivate_user(db, user_id))

@@ -3,6 +3,7 @@
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Final
 
@@ -11,9 +12,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.auth.service import revoke_all_sessions
 from app.core.security import hash_password
 from app.users.exceptions import (
     CannotChangeOwnRole,
+    CannotDeactivateSelf,
     EmailTaken,
     FamilyNameTaken,
     UnknownPromotion,
@@ -150,6 +153,31 @@ async def update_user(
         for name, value in fields.items():
             setattr(user, name, value)
     await db.commit()
+    return await get_user(db, user.id, include_deactivated=True)
+
+
+async def deactivate_user(db: AsyncSession, actor: User, user_id: uuid.UUID) -> User:
+    """Soft-delete a user: block logins and sign them out everywhere, at once. Commits.
+
+    Their family name and email stay reserved, and their wishes are kept. Doing it again
+    changes nothing. Admins can't deactivate themselves.
+    """
+    user = await get_user(db, user_id, include_deactivated=True)
+    if user.id == actor.id:
+        raise CannotDeactivateSelf()
+    if user.deactivated_at is None:
+        user.deactivated_at = datetime.now(UTC)
+        await revoke_all_sessions(db, user.id)
+        await db.commit()
+    return await get_user(db, user.id, include_deactivated=True)
+
+
+async def reactivate_user(db: AsyncSession, user_id: uuid.UUID) -> User:
+    """Let a deactivated user log in again. Their old sessions stay revoked. Commits."""
+    user = await get_user(db, user_id, include_deactivated=True)
+    if user.deactivated_at is not None:
+        user.deactivated_at = None
+        await db.commit()
     return await get_user(db, user.id, include_deactivated=True)
 
 
