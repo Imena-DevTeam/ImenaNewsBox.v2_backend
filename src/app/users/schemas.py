@@ -7,7 +7,7 @@ Users have two separate read schemas, never one with fields hidden on the fly:
 
 import uuid
 from datetime import UTC, date, datetime
-from typing import Annotated, Any, Self
+from typing import Annotated, Any, Final, Self
 
 from pydantic import (
     AfterValidator,
@@ -15,16 +15,18 @@ from pydantic import (
     ConfigDict,
     EmailStr,
     Field,
+    SecretStr,
     StringConstraints,
     field_validator,
     model_validator,
 )
 
-from app.auth.schemas import FamilyName
+from app.auth.schemas import PASSWORD_MAX_LENGTH, FamilyName
 from app.core.pagination import PageParams
 from app.users.models import DISPLAY_NAME_MAX_LENGTH, EMAIL_MAX_LENGTH, Role
 
-EARLIEST_BIRTHDAY = date(1900, 1, 1)
+EARLIEST_BIRTHDAY: Final = date(1900, 1, 1)
+MIN_ADMIN_PASSWORD_LENGTH: Final = 12
 
 
 def _check_email_length(email: str) -> str:
@@ -149,3 +151,9 @@ class UserUpdate(BaseModel):
             if name in self.model_fields_set and getattr(self, name) is None:
                 raise ValueError(f"{name} can't be null")
         return self
+
+
+class PasswordSet(BaseModel):
+    password: Annotated[
+        SecretStr, Field(min_length=MIN_ADMIN_PASSWORD_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+    ]

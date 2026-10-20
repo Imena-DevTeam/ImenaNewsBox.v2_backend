@@ -17,6 +17,7 @@ from app.users import service
 from app.users.models import Role
 from app.users.schemas import (
     AccountListParams,
+    PasswordSet,
     PromotionRead,
     SubFamilyRead,
     UserCreate,
@@ -110,3 +111,11 @@ async def deactivate_user(user_id: uuid.UUID, admin: AdminUser, db: DbSession) -
 async def reactivate_user(user_id: uuid.UUID, admin: AdminUser, db: DbSession) -> UserRead:
     """Admins: let a deactivated user log in again (on each device, from scratch)."""
     return UserRead.model_validate(await service.reactivate_user(db, user_id))
+
+
+@router.put("/{user_id}/password", status_code=HTTPStatus.NO_CONTENT)
+async def set_admin_password(
+    user_id: uuid.UUID, body: PasswordSet, admin: AdminUser, db: DbSession
+) -> None:
+    """Admins: set an admin's password (at least 12 characters), e.g. after promoting them."""
+    await service.set_admin_password(db, user_id, body.password.get_secret_value())

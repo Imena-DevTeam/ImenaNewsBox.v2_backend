@@ -40,3 +40,8 @@ class CannotChangeOwnRole(Conflict):
 class CannotDeactivateSelf(Conflict):
     code = "cannot_deactivate_self"
     default_message = "You can't deactivate yourself. Ask another admin."
+
+
+class NotAnAdmin(Conflict):
+    code = "not_an_admin"
+    default_message = "Only admins have a password. Make them an admin first."

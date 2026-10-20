@@ -75,6 +75,7 @@ All under `/api/v1/users`, and all need an access token.
 | `PATCH /{id}` | admins | changes any fields of any user, deactivated ones included; send only what changes (`promotion_id` and `birthday` can be `null`). Returns `UserRead` |
 | `POST /{id}/deactivate` | admins | soft-deletes the user and signs them out of every device in the same transaction, so their next request fails. Repeating it changes nothing; admins can't deactivate themselves (409 `cannot_deactivate_self`) |
 | `POST /{id}/reactivate` | admins | lets them log in again. Old sessions stay revoked, so each device logs in from scratch |
+| `PUT /{id}/password` | admins | sets an admin's password, their own included (`{password}`, 12 to 256 characters; 204). For an admin who has none yet or forgot it; 409 `not_an_admin` for anyone else. Their sessions aren't touched |
 
 `UserPublicRead` is `{id, family_name, display_name, photo_url, sub_family: {id, name}, promotion: {id, name} | null, birthday: {month, day} | null}`. The year of birth is dropped inside the schema itself, so no route can send it to other members by mistake.
 

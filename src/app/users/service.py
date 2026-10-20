@@ -19,15 +19,13 @@ from app.users.exceptions import (
     CannotDeactivateSelf,
     EmailTaken,
     FamilyNameTaken,
+    NotAnAdmin,
     UnknownPromotion,
     UnknownSubFamily,
     UserNotFound,
 )
 from app.users.models import Promotion, Role, SubFamily, User
-from app.users.schemas import UserCreate, UserUpdate
-
-MIN_ADMIN_PASSWORD_LENGTH: Final = 12
-
+from app.users.schemas import MIN_ADMIN_PASSWORD_LENGTH, UserCreate, UserUpdate
 
 # --- Reading ---
 
@@ -179,6 +177,19 @@ async def reactivate_user(db: AsyncSession, user_id: uuid.UUID) -> User:
         user.deactivated_at = None
         await db.commit()
     return await get_user(db, user.id, include_deactivated=True)
+
+
+async def set_admin_password(db: AsyncSession, user_id: uuid.UUID, password: str) -> None:
+    """Give an admin a new password (admins only, their own included). Commits.
+
+    For admins who have none yet (promoted or imported from v1) or who forgot theirs. Their
+    sessions stay as they are: the password is only checked when a new device logs in.
+    """
+    user = await get_user(db, user_id, include_deactivated=True)
+    if not user.role.at_least(Role.ADMIN):
+        raise NotAnAdmin()
+    user.password_hash = await hash_password(password)
+    await db.commit()
 
 
 # --- First admin ---
