@@ -7,7 +7,7 @@ Users have two separate read schemas, never one with fields hidden on the fly:
 
 import uuid
 from datetime import UTC, date, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Self
 
 from pydantic import (
     AfterValidator,
@@ -17,6 +17,7 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
+    model_validator,
 )
 
 from app.auth.schemas import FamilyName
@@ -126,3 +127,25 @@ class UserCreate(BaseModel):
     promotion_id: int | None = None
     birthday: Birthday | None = None
     role: Role = Role.MEMBER
+
+
+class UserUpdate(BaseModel):
+    """Admins: send only the fields that change. `promotion_id` and `birthday` can be set to
+    null to clear them; the other fields can't be null."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    family_name: FamilyName | None = None
+    display_name: DisplayName | None = None
+    email: Email | None = None
+    sub_family_id: int | None = None
+    promotion_id: int | None = None
+    birthday: Birthday | None = None
+    role: Role | None = None
+
+    @model_validator(mode="after")
+    def _required_fields_stay_set(self) -> Self:
+        for name in ("family_name", "display_name", "email", "sub_family_id", "role"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} can't be null")
+        return self

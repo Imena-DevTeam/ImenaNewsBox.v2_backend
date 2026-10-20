@@ -28,3 +28,10 @@ class UnknownSubFamily(BadRequest):
 class UnknownPromotion(BadRequest):
     code = "unknown_promotion"
     default_message = "That promotion doesn't exist."
+
+
+class CannotChangeOwnRole(Conflict):
+    """So an admin can't demote themselves and leave nobody able to manage users."""
+
+    code = "cannot_change_own_role"
+    default_message = "You can't change your own role. Ask another admin."

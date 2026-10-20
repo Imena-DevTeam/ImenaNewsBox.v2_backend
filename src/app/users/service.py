@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.security import hash_password
 from app.users.exceptions import (
+    CannotChangeOwnRole,
     EmailTaken,
     FamilyNameTaken,
     UnknownPromotion,
@@ -20,7 +21,7 @@ from app.users.exceptions import (
     UserNotFound,
 )
 from app.users.models import Promotion, Role, SubFamily, User
-from app.users.schemas import UserCreate
+from app.users.schemas import UserCreate, UserUpdate
 
 MIN_ADMIN_PASSWORD_LENGTH: Final = 12
 
@@ -118,6 +119,38 @@ async def create_user(db: AsyncSession, data: UserCreate) -> User:
         db.add(user)
     await db.commit()
     return await get_user(db, user.id)
+
+
+async def update_user(
+    db: AsyncSession, actor: User, user_id: uuid.UUID, changes: UserUpdate
+) -> User:
+    """Change a user's fields (admins only, deactivated users included). Commits.
+
+    - A new email (not just different capitals) clears `email_verified_at`.
+    - Demoting an admin removes their password: only admins have one.
+    - Admins can't change their own role, so the last admin can't lock everyone out.
+    """
+    user = await get_user(db, user_id, include_deactivated=True)
+    fields = changes.model_dump(exclude_unset=True)
+
+    new_role = fields.get("role")
+    if new_role is not None and new_role != user.role:
+        if user.id == actor.id:
+            raise CannotChangeOwnRole()
+        if not new_role.at_least(Role.ADMIN):
+            fields["password_hash"] = None
+    new_email = fields.get("email")
+    if new_email is not None and new_email.lower() != user.email.lower():
+        fields["email_verified_at"] = None
+    await _check_lookups(
+        db, sub_family_id=fields.get("sub_family_id"), promotion_id=fields.get("promotion_id")
+    )
+
+    async with _unique_fields(db):
+        for name, value in fields.items():
+            setattr(user, name, value)
+    await db.commit()
+    return await get_user(db, user.id, include_deactivated=True)
 
 
 # --- First admin ---

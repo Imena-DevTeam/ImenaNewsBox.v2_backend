@@ -22,6 +22,7 @@ from app.users.schemas import (
     UserCreate,
     UserPublicRead,
     UserRead,
+    UserUpdate,
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -89,3 +90,11 @@ async def get_account(user_id: uuid.UUID, user: CurrentUser, db: DbSession) -> U
         db, user_id, include_deactivated=user.role.at_least(Role.ADMIN)
     )
     return UserRead.model_validate(account)
+
+
+@router.patch("/{user_id}")
+async def update_user(
+    user_id: uuid.UUID, body: UserUpdate, admin: AdminUser, db: DbSession
+) -> UserRead:
+    """Admins: change any of a user's fields. Send only what changes."""
+    return UserRead.model_validate(await service.update_user(db, admin, user_id, body))
