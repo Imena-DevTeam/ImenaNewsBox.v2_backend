@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import UserSession
 from app.auth.service import create_session
+from app.auth.tests.helpers import post_with_cookie
 from app.core.security import decode_access_token
 from app.users.models import Role, User
 
@@ -151,6 +152,106 @@ async def test_a_malformed_user_id_is_rejected(
 ) -> None:
     response = await client.get(
         SESSIONS, params={"user_id": "not-a-uuid"}, headers=await login_as(await make_user())
+    )
+
+    assert response.status_code == 422
+
+
+# --- Revoking ---
+
+
+async def test_you_can_sign_out_another_of_your_devices(
+    client: AsyncClient, db_session: AsyncSession, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    user = await make_user()
+    headers = await login_as(user)
+    laptop = await create_session(db_session, user, device_label="laptop")
+
+    response = await client.delete(f"{SESSIONS}/{laptop.session.id}", headers=headers)
+
+    assert response.status_code == 204
+    assert laptop.session.revoked_at is not None
+    refreshed = await post_with_cookie(client, "/api/v1/auth/refresh", laptop.refresh_token)
+    assert refreshed.json()["error"]["code"] == "session_ended"
+    # This device is still logged in, and the laptop is gone from the list.
+    listed = await client.get(SESSIONS, headers=headers)
+    assert [item["current"] for item in listed.json()["items"]] == [True]
+
+
+async def test_signing_out_this_device_ends_its_access_token(
+    client: AsyncClient, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    headers = await login_as(await make_user())
+
+    response = await client.delete(f"{SESSIONS}/{_session_id(headers)}", headers=headers)
+
+    assert response.status_code == 204
+    after = await client.get(SESSIONS, headers=headers)
+    assert after.json()["error"]["code"] == "session_ended"
+
+
+async def test_revoking_twice_is_harmless(
+    client: AsyncClient, db_session: AsyncSession, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    user = await make_user()
+    headers = await login_as(user)
+    laptop = await _device(db_session, user, "laptop")
+    first = await client.delete(f"{SESSIONS}/{laptop.id}", headers=headers)
+    revoked_at = laptop.revoked_at
+
+    second = await client.delete(f"{SESSIONS}/{laptop.id}", headers=headers)
+
+    assert (first.status_code, second.status_code) == (204, 204)
+    assert laptop.revoked_at == revoked_at
+
+
+async def test_members_cannot_sign_out_other_peoples_devices(
+    client: AsyncClient, db_session: AsyncSession, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    phone = await _device(db_session, await make_user(), "phone")
+    headers = await login_as(await make_user(role=Role.SOCIAL_MEDIA_MANAGER))
+
+    response = await client.delete(f"{SESSIONS}/{phone.id}", headers=headers)
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "not_owner"
+    assert phone.revoked_at is None
+
+
+async def test_admins_can_sign_out_anyones_device(
+    client: AsyncClient, db_session: AsyncSession, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    phone = await _device(db_session, await make_user(), "phone")
+    headers = await login_as(await make_user(role=Role.ADMIN))
+
+    response = await client.delete(f"{SESSIONS}/{phone.id}", headers=headers)
+
+    assert response.status_code == 204
+    assert phone.revoked_at is not None
+
+
+async def test_an_unknown_session_is_not_found(
+    client: AsyncClient, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    response = await client.delete(
+        f"{SESSIONS}/{uuid.uuid7()}", headers=await login_as(await make_user())
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "session_not_found"
+
+
+async def test_revoking_needs_a_login(client: AsyncClient) -> None:
+    response = await client.delete(f"{SESSIONS}/{uuid.uuid7()}")
+
+    assert response.status_code == 401
+
+
+async def test_a_malformed_session_id_is_rejected(
+    client: AsyncClient, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    response = await client.delete(
+        f"{SESSIONS}/not-a-uuid", headers=await login_as(await make_user())
     )
 
     assert response.status_code == 422

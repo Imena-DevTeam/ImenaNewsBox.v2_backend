@@ -111,6 +111,13 @@ Needs an access token. Returns a page (`?page=&limit=`) of the caller's **active
 
 Admins can add `?user_id=<id>` to see anyone's devices; anyone else gets 403 `not_owner` for another user's ID.
 
+### `DELETE /sessions/{id}` — sign a device out
+
+Needs an access token. Revokes that session: its refresh token stops working at once, and its access token on its next request. Returns 204, also when the session had already ended, so repeating it is safe.
+
+- **Who:** the session's owner, or any admin. Anyone else gets 403 `not_owner`; an unknown ID gets 404 `session_not_found`.
+- **This device:** revoking your own current session works too, but `POST /logout` is better for that because it also clears the cookie.
+
 ## Tokens
 
 | | Access token | Refresh token |

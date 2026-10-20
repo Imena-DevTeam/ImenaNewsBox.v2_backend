@@ -1,12 +1,18 @@
 """HTTP routes: parse input, call the service, shape the response. No business logic here."""
 
+import uuid
 from http import HTTPStatus
 from typing import Annotated, Final
 
 from fastapi import APIRouter, Cookie, Depends, Query, Request, Response
 
 from app.auth import service
-from app.auth.dependencies import CurrentAuth, require_allowed_origin, require_owner_or_admin
+from app.auth.dependencies import (
+    CurrentAuth,
+    CurrentUser,
+    require_allowed_origin,
+    require_owner_or_admin,
+)
 from app.auth.exceptions import NotAuthenticated
 from app.auth.schemas import (
     AccessToken,
@@ -148,3 +154,10 @@ async def list_sessions(
         for session in sessions
     ]
     return Page.build(items, params=params, total=total)
+
+
+@router.delete("/sessions/{session_id}", status_code=HTTPStatus.NO_CONTENT)
+async def revoke_session(session_id: uuid.UUID, user: CurrentUser, db: DbSession) -> None:
+    """Sign one of your devices out (admins: anyone's). To sign out the device you're on,
+    use `POST /logout`, which also clears its cookie."""
+    await service.revoke_session(db, user, session_id)

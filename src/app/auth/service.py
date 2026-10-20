@@ -9,6 +9,7 @@ from typing import Final
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.dependencies import require_owner_or_admin
 from app.auth.exceptions import (
     AdminPasswordRequired,
     CodeRecentlySent,
@@ -17,6 +18,7 @@ from app.auth.exceptions import (
     InvalidCredentials,
     RefreshConflict,
     SessionEnded,
+    SessionNotFound,
     TooManyCodes,
 )
 from app.auth.models import DEVICE_LABEL_MAX_LENGTH, EmailCode, UserSession
@@ -383,6 +385,21 @@ async def list_sessions(
         .limit(limit)
     )
     return list(sessions), total or 0
+
+
+async def revoke_session(db: AsyncSession, actor: User, session_id: uuid.UUID) -> None:
+    """Sign one device out. Its owner or an admin may do it. Commits.
+
+    Revoking a session that already ended does nothing, so repeating the request is safe.
+    The device's access token stops working on its next request.
+    """
+    session = await db.get(UserSession, session_id)
+    if session is None:
+        raise SessionNotFound()
+    require_owner_or_admin(actor, session.user_id)
+    if session.revoked_at is None:
+        session.revoked_at = datetime.now(UTC)
+        await db.commit()
 
 
 # --- Device labels ---
