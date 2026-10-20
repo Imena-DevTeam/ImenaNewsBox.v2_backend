@@ -3,22 +3,25 @@
 from http import HTTPStatus
 from typing import Annotated, Final
 
-from fastapi import APIRouter, Cookie, Depends, Request, Response
+from fastapi import APIRouter, Cookie, Depends, Query, Request, Response
 
 from app.auth import service
-from app.auth.dependencies import require_allowed_origin
+from app.auth.dependencies import CurrentAuth, require_allowed_origin, require_owner_or_admin
 from app.auth.exceptions import NotAuthenticated
 from app.auth.schemas import (
     AccessToken,
     CodeSent,
     GoogleLoginRequest,
     LoginRequest,
+    SessionListParams,
+    SessionRead,
     VerifyRequest,
 )
 from app.core.config import get_settings
 from app.core.database.session import DbSession
 from app.core.email import EmailSender, get_email_sender
 from app.core.google import GoogleVerifier, get_google_verifier
+from app.core.pagination import Page
 from app.core.security import CODE_TTL
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -120,3 +123,28 @@ async def logout(response: Response, db: DbSession, refresh_token: RefreshCookie
     response.delete_cookie(
         REFRESH_COOKIE, path=REFRESH_COOKIE_PATH, secure=True, httponly=True, samesite="lax"
     )
+
+
+@router.get("/sessions")
+async def list_sessions(
+    auth: CurrentAuth, db: DbSession, params: Annotated[SessionListParams, Query()]
+) -> Page[SessionRead]:
+    """Your logged-in devices, most recently used first. Admins can pass `user_id` to see
+    anyone's."""
+    owner_id = params.user_id or auth.user.id
+    require_owner_or_admin(auth.user, owner_id)
+    sessions, total = await service.list_sessions(
+        db, owner_id, offset=params.offset, limit=params.limit
+    )
+    items = [
+        SessionRead(
+            id=session.id,
+            device_label=session.device_label,
+            created_at=session.created_at,
+            last_used_at=session.last_used_at,
+            expires_at=session.expires_at,
+            current=session.id == auth.session_id,
+        )
+        for session in sessions
+    ]
+    return Page.build(items, params=params, total=total)

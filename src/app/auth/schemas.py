@@ -1,10 +1,13 @@
 """Pydantic request/response models (DTOs)."""
 
+import uuid
+from datetime import datetime
 from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, Field, SecretStr, StringConstraints
 
 from app.core.google import ID_TOKEN_MAX_LENGTH
+from app.core.pagination import PageParams
 from app.core.security import CODE_LENGTH
 from app.users.models import FAMILY_NAME_MAX_LENGTH
 
@@ -53,3 +56,20 @@ class AccessToken(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     expires_in: int = Field(description="Seconds until the access token expires.")
+
+
+class SessionRead(BaseModel):
+    """One logged-in device, as its owner (or an admin) sees it. Never includes token hashes."""
+
+    id: uuid.UUID
+    device_label: str
+    created_at: datetime
+    last_used_at: datetime
+    expires_at: datetime
+    current: bool = Field(description="True for the device making this request.")
+
+
+class SessionListParams(PageParams):
+    user_id: uuid.UUID | None = Field(
+        default=None, description="Admins only: list this user's sessions instead of yours."
+    )

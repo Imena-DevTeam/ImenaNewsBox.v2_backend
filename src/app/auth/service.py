@@ -1,6 +1,7 @@
 """Business logic and data access."""
 
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
@@ -359,6 +360,29 @@ async def end_session(db: AsyncSession, refresh_token: str) -> None:
     if session is not None:
         session.revoked_at = datetime.now(UTC)
         await db.commit()
+
+
+# --- Listing and revoking sessions ---
+
+
+async def list_sessions(
+    db: AsyncSession, user_id: uuid.UUID, *, offset: int, limit: int
+) -> tuple[list[UserSession], int]:
+    """A user's active sessions (not revoked, not expired), most recently used first."""
+    active = (
+        UserSession.user_id == user_id,
+        UserSession.revoked_at.is_(None),
+        UserSession.expires_at > datetime.now(UTC),
+    )
+    total = await db.scalar(select(func.count()).select_from(UserSession).where(*active))
+    sessions = await db.scalars(
+        select(UserSession)
+        .where(*active)
+        .order_by(UserSession.last_used_at.desc(), UserSession.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(sessions), total or 0
 
 
 # --- Device labels ---
