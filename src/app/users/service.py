@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -79,6 +79,17 @@ async def get_user(
     if user is None:
         raise UserNotFound()
     return user
+
+
+async def get_users(db: AsyncSession, user_ids: Collection[uuid.UUID]) -> list[User]:
+    """Active users with these IDs, with their sub-family and promotion, in no set order.
+    Unknown or deactivated IDs are left out."""
+    if not user_ids:
+        return []
+    users = await db.scalars(
+        _with_lookups(select(User).where(User.id.in_(user_ids), User.deactivated_at.is_(None)))
+    )
+    return list(users)
 
 
 async def list_sub_families(db: AsyncSession) -> list[SubFamily]:

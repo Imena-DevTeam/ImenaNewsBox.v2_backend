@@ -197,3 +197,12 @@ Otherwise the only admin could demote themselves (or be tricked into it) and nob
 
 **60. A failed confirmation email doesn't undo an admin's email change.**
 When an admin changes a member's email, the change is committed first and the confirmation code is sent afterwards. If the provider is down (or the limits stop the code), the change stays saved and the reason is logged; the member can ask for a new code with `POST /users/me/email/resend`, or simply log in with a code sent to the new address, which also confirms it. Failing the admin's request instead would leave them unsure whether anything had changed.
+
+**61. Birthday dates use UTC, and 29 February falls on 28 February in other years.**
+The 30-day wish window and upcoming birthdays need a "today". The server's UTC date is the simplest single answer, and v1 used UTC too. For a family around UTC+2 the window opens and closes up to two hours late, which doesn't matter over 30 days. A leap-day birthday needs a date in the other three years; 28 February keeps it in its own month. Each wish stores the year of the birthday it's for, computed by the server rather than sent by the client, so a late-December wish for a January birthday counts as next year's.
+
+**62. A wish is seen by its sender, its recipient and admins.**
+Members list the wishes they received and the ones they sent; admins can list anyone's, because they need to find a wish to delete it. There's no shared "wall" of everyone's wishes: nothing asked for one, and it's easy to add later, while making private messages public can't be undone. Only the sender can edit a wish, not even an admin, so a message never says something its sender didn't write; admins can still delete it.
+
+**63. Upcoming birthdays are worked out in Python, not SQL.**
+The endpoint reads every active member's birthday (two columns) and picks the next 30 days in Python, with the same `next_birthday` function the wish window uses. The year wrap and 29 February are hard to read in SQL, and having one function for both rules means the list and the window can't disagree. A family has hundreds of members at most, so it's one small query. If that ever grows, the filter can move into SQL behind the same function's tests.

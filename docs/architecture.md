@@ -43,7 +43,7 @@ Every feature uses the same files, so you always know where to look:
 | `models.py` | SQLAlchemy models: what the database stores. Only in features that own tables (`posts` has none, because posts live in Sanity). |
 | `service.py` | Business logic and data access. This is where the real work happens. |
 | `dependencies.py` | FastAPI `Depends` helpers specific to the feature. |
-| `exceptions.py` | Exceptions the feature raises (e.g. `WishNotAllowed`). |
+| `exceptions.py` | Exceptions the feature raises (e.g. `WishAlreadySent`). |
 | `tests/` | Tests for this feature (`test_service.py`, `test_router.py`). |
 
 > **schemas vs models.** `schemas.py` = Pydantic (API shape). `models.py` = SQLAlchemy (DB shape). Never mix them, and never return a SQLAlchemy model directly. Always declare a `response_model`, so internal fields like `password_hash` can't leak.
