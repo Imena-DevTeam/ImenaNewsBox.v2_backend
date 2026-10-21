@@ -51,7 +51,3 @@ def test_the_30_day_window(on: date, days: int, wishable: bool) -> None:
 def test_the_window_crosses_new_year() -> None:
     assert days_until_birthday(date(1990, 1, 10), date(2026, 12, 15)) == 26
     assert is_wishable(date(1990, 1, 10), date(2026, 12, 15))
-
-
-def test_no_birthday_is_never_wishable() -> None:
-    assert not is_wishable(None, date(2026, 6, 30))

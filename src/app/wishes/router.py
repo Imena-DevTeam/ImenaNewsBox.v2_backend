@@ -1,5 +1,38 @@
-"""HTTP routes: parse input, call the service, shape the response. No business logic here."""
+"""HTTP routes: parse input, call the service, shape the response. No business logic here.
+
+Fixed paths are declared before `/{wish_id}`, which would otherwise try to read them as IDs.
+"""
+
+import uuid
+from http import HTTPStatus
 
 from fastapi import APIRouter
 
+from app.auth.dependencies import CurrentUser
+from app.core.database.session import DbSession
+from app.wishes import service
+from app.wishes.schemas import WishCreate, WishRead, WishUpdate
+
 router = APIRouter(prefix="/wishes", tags=["wishes"])
+
+
+@router.post("", status_code=HTTPStatus.CREATED)
+async def send_wish(body: WishCreate, user: CurrentUser, db: DbSession) -> WishRead:
+    """Wish a member a happy birthday: when their birthday is today or in the next 30 days,
+    once per birthday, and never yourself."""
+    wish = await service.send_wish(db, user, body, on=service.today())
+    return WishRead.model_validate(wish)
+
+
+@router.patch("/{wish_id}")
+async def update_wish(
+    wish_id: uuid.UUID, body: WishUpdate, user: CurrentUser, db: DbSession
+) -> WishRead:
+    """Change the message of a wish you sent. Only its sender can, not admins."""
+    return WishRead.model_validate(await service.update_wish(db, user, wish_id, body))
+
+
+@router.delete("/{wish_id}", status_code=HTTPStatus.NO_CONTENT)
+async def delete_wish(wish_id: uuid.UUID, user: CurrentUser, db: DbSession) -> None:
+    """Delete a wish you sent (admins: any wish)."""
+    await service.delete_wish(db, user, wish_id)

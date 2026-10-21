@@ -109,6 +109,24 @@ All under `/api/v1/users`, and all need an access token.
 - Wishes are kept as history. v1 deleted all wishes every night; v2 doesn't.
 - **Birthday emails are a later feature.** For now, the family's Slack covers birthday reminders.
 
+### Wishes API
+
+All under `/api/v1/wishes`, and all need an access token.
+
+| Endpoint | Who | Returns |
+|---|---|---|
+| `POST /` | any member | `{recipient_id, message}` (1 to 2000 characters): wishes an active member for their next birthday (201, `WishRead`). The server sets the `year`; sending one is a 422 |
+| `PATCH /{id}` | the sender only, not admins | `{message}`: changes the message. Returns `WishRead` |
+| `DELETE /{id}` | the sender, or an admin | deletes the wish (204) |
+
+`WishRead` is `{id, sender, recipient, year, message, created_at, updated_at}`, with `sender` and `recipient` as `UserPublicRead`, so a wish never shows a year of birth.
+
+**Errors:**
+- 400 `cannot_wish_yourself`.
+- 409 `birthday_not_soon`: the recipient's birthday isn't today or in the next 30 days, or they haven't given one.
+- 409 `wish_already_sent`: you've already wished them for this birthday. It comes from the database's unique constraint, so two requests at once can't both get through.
+- 404 `user_not_found` for an unknown or deactivated recipient, and `wish_not_found` for an unknown wish. Someone else's wish is a 403 `not_owner`.
+
 ## Blog posts
 
 - Posts are stored in **Sanity**, including their images. We have no posts table.
