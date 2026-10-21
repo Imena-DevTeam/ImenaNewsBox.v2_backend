@@ -18,6 +18,7 @@ from app.users.models import Role
 from app.users.schemas import (
     AccountListParams,
     PasswordSet,
+    ProfileUpdate,
     PromotionRead,
     SubFamilyRead,
     UserCreate,
@@ -47,6 +48,12 @@ async def create_user(body: UserCreate, admin: AdminUser, db: DbSession) -> User
 async def get_me(user: CurrentUser, db: DbSession) -> UserRead:
     """Your own account, with the private fields."""
     return UserRead.model_validate(await service.get_user(db, user.id))
+
+
+@router.patch("/me")
+async def update_me(body: ProfileUpdate, user: CurrentUser, db: DbSession) -> UserRead:
+    """Change your own display name or birthday. Admins change everything else."""
+    return UserRead.model_validate(await service.update_profile(db, user, body))
 
 
 @router.get("/accounts")

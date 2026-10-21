@@ -69,6 +69,7 @@ All under `/api/v1/users`, and all need an access token.
 | `GET /{id}` | any member | one active member as `UserPublicRead`; 404 `user_not_found` for unknown or deactivated users |
 | `GET /sub-families`, `GET /promotions` | any member | the fixed lookup lists, sorted by name. They're short and fixed, so they're plain lists, not pages |
 | `GET /me` | any member | your own account as `UserRead` |
+| `PATCH /me` | any member | changes your own `display_name` and `birthday` (null clears it), and nothing else: any other field is a 422. Returns `UserRead` |
 | `GET /{id}/account` | the user themselves, or an admin | one account as `UserRead`; admins also see deactivated users. Anyone else gets 403 `not_owner` |
 | `GET /accounts` | admins | every active account as `UserRead`, paginated; add `?include_deactivated=true` for deactivated ones too |
 | `POST /` | admins | registers a member (201, `UserRead`): `{family_name, display_name, email, sub_family_id, promotion_id?, birthday?, role?}`. Role defaults to `member`; an admin also needs a password before they can log in |

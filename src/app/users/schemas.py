@@ -157,3 +157,19 @@ class PasswordSet(BaseModel):
     password: Annotated[
         SecretStr, Field(min_length=MIN_ADMIN_PASSWORD_LENGTH, max_length=PASSWORD_MAX_LENGTH)
     ]
+
+
+class ProfileUpdate(BaseModel):
+    """What members may change about themselves. Send only what changes; `birthday` can be
+    null to clear it. Everything else is for admins (`UserUpdate`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: DisplayName | None = None
+    birthday: Birthday | None = None
+
+    @model_validator(mode="after")
+    def _display_name_stays_set(self) -> Self:
+        if "display_name" in self.model_fields_set and self.display_name is None:
+            raise ValueError("display_name can't be null")
+        return self

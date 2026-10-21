@@ -25,7 +25,7 @@ from app.users.exceptions import (
     UserNotFound,
 )
 from app.users.models import Promotion, Role, SubFamily, User
-from app.users.schemas import MIN_ADMIN_PASSWORD_LENGTH, UserCreate, UserUpdate
+from app.users.schemas import MIN_ADMIN_PASSWORD_LENGTH, ProfileUpdate, UserCreate, UserUpdate
 
 # --- Reading ---
 
@@ -152,6 +152,14 @@ async def update_user(
             setattr(user, name, value)
     await db.commit()
     return await get_user(db, user.id, include_deactivated=True)
+
+
+async def update_profile(db: AsyncSession, user: User, changes: ProfileUpdate) -> User:
+    """A member changing their own display name or birthday. Commits."""
+    for name, value in changes.model_dump(exclude_unset=True).items():
+        setattr(user, name, value)
+    await db.commit()
+    return await get_user(db, user.id)
 
 
 async def deactivate_user(db: AsyncSession, actor: User, user_id: uuid.UUID) -> User:
