@@ -36,12 +36,16 @@ class CodeSent(BaseModel):
     resend_after: int = Field(description="Seconds before another code can be requested.")
 
 
+# An emailed code as typed: spaces around it are ignored. [0-9], not \d, which also
+# matches other scripts' digits.
+Code = Annotated[
+    str, StringConstraints(strip_whitespace=True, pattern=rf"^[0-9]{{{CODE_LENGTH}}}$")
+]
+
+
 class VerifyRequest(BaseModel):
     family_name: FamilyName
-    # [0-9], not \d, which also matches other scripts' digits.
-    code: Annotated[
-        str, StringConstraints(strip_whitespace=True, pattern=rf"^[0-9]{{{CODE_LENGTH}}}$")
-    ]
+    code: Code
 
 
 class GoogleLoginRequest(BaseModel):

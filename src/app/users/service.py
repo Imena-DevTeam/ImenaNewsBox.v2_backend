@@ -1,5 +1,6 @@
 """Business logic and data access."""
 
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -13,12 +14,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import require_owner_or_admin
-from app.auth.service import revoke_all_sessions
+from app.auth.exceptions import CodeRecentlySent, TooManyCodes
+from app.auth.service import (
+    consume_code,
+    issue_code,
+    mark_email_verified,
+    revoke_all_sessions,
+)
+from app.core.email import CodePurpose, EmailNotConfigured, EmailNotSent, EmailSender
 from app.core.media import MediaStore
 from app.core.security import hash_password
 from app.users.exceptions import (
     CannotChangeOwnRole,
     CannotDeactivateSelf,
+    EmailAlreadyVerified,
     EmailTaken,
     FamilyNameTaken,
     NotAnAdmin,
@@ -28,6 +37,9 @@ from app.users.exceptions import (
 )
 from app.users.models import Promotion, Role, SubFamily, User
 from app.users.schemas import MIN_ADMIN_PASSWORD_LENGTH, ProfileUpdate, UserCreate, UserUpdate
+
+logger = logging.getLogger(__name__)
+
 
 # --- Reading ---
 
@@ -125,11 +137,16 @@ async def create_user(db: AsyncSession, data: UserCreate) -> User:
 
 
 async def update_user(
-    db: AsyncSession, actor: User, user_id: uuid.UUID, changes: UserUpdate
+    db: AsyncSession,
+    actor: User,
+    user_id: uuid.UUID,
+    changes: UserUpdate,
+    sender: EmailSender,
 ) -> User:
     """Change a user's fields (admins only, deactivated users included). Commits.
 
-    - A new email (not just different capitals) clears `email_verified_at`.
+    - A new email (not just different capitals) clears `email_verified_at` and sends
+      a code to the new address (see `send_email_confirmation`).
     - Demoting an admin removes their password: only admins have one.
     - Admins can't change their own role, so the last admin can't lock everyone out.
     """
@@ -143,7 +160,8 @@ async def update_user(
         if not new_role.at_least(Role.ADMIN):
             fields["password_hash"] = None
     new_email = fields.get("email")
-    if new_email is not None and new_email.lower() != user.email.lower():
+    email_changed = new_email is not None and new_email.lower() != user.email.lower()
+    if email_changed:
         fields["email_verified_at"] = None
     await _check_lookups(
         db, sub_family_id=fields.get("sub_family_id"), promotion_id=fields.get("promotion_id")
@@ -153,7 +171,40 @@ async def update_user(
         for name, value in fields.items():
             setattr(user, name, value)
     await db.commit()
+    if email_changed:
+        await _try_to_send_confirmation(db, sender, user)
     return await get_user(db, user.id, include_deactivated=True)
+
+
+async def _try_to_send_confirmation(db: AsyncSession, sender: EmailSender, user: User) -> None:
+    # The admin's change is already saved and shouldn't fail because of the email;
+    # the member can ask for the code again (`send_email_confirmation`).
+    try:
+        await issue_code(db, sender, user, CodePurpose.EMAIL_CHANGE, to=user.email)
+    except (EmailNotSent, EmailNotConfigured, CodeRecentlySent, TooManyCodes) as exc:
+        logger.warning("No confirmation code was sent for user %s: %s", user.id, exc.code)
+
+
+# --- Confirming an email ---
+
+
+async def send_email_confirmation(db: AsyncSession, sender: EmailSender, user: User) -> None:
+    """Email a code that confirms the user's current address. Commits.
+
+    Same limits as login codes: one a minute, ten a day.
+    """
+    if user.email_verified_at is not None:
+        raise EmailAlreadyVerified()
+    await issue_code(db, sender, user, CodePurpose.EMAIL_CHANGE, to=user.email)
+
+
+async def confirm_email(db: AsyncSession, user: User, code: str) -> User:
+    """Check a confirmation code and mark the email verified. Commits. Raises
+    `InvalidCode`."""
+    await consume_code(db, user, CodePurpose.EMAIL_CHANGE, code)
+    mark_email_verified(user)
+    await db.commit()
+    return await get_user(db, user.id)
 
 
 async def update_profile(db: AsyncSession, user: User, changes: ProfileUpdate) -> User:

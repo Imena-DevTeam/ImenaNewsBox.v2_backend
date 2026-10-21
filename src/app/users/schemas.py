@@ -21,7 +21,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.auth.schemas import PASSWORD_MAX_LENGTH, FamilyName
+from app.auth.schemas import PASSWORD_MAX_LENGTH, Code, FamilyName
 from app.core.pagination import PageParams
 from app.users.models import DISPLAY_NAME_MAX_LENGTH, EMAIL_MAX_LENGTH, Role
 
@@ -173,3 +173,7 @@ class ProfileUpdate(BaseModel):
         if "display_name" in self.model_fields_set and self.display_name is None:
             raise ValueError("display_name can't be null")
         return self
+
+
+class EmailConfirm(BaseModel):
+    code: Code

@@ -194,3 +194,6 @@ Creating or changing a user applies the change inside a savepoint and maps the u
 
 **59. Admins can't change their own role.**
 Otherwise the only admin could demote themselves (or be tricked into it) and nobody could manage users or reach the seed again without the database. Another admin has to do it. Demotion also clears the password hash, since passwords are only for admins.
+
+**60. A failed confirmation email doesn't undo an admin's email change.**
+When an admin changes a member's email, the change is committed first and the confirmation code is sent afterwards. If the provider is down (or the limits stop the code), the change stays saved and the reason is logged; the member can ask for a new code with `POST /users/me/email/resend`, or simply log in with a code sent to the new address, which also confirms it. Failing the admin's request instead would leave them unsure whether anything had changed.

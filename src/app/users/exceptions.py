@@ -45,3 +45,8 @@ class CannotDeactivateSelf(Conflict):
 class NotAnAdmin(Conflict):
     code = "not_an_admin"
     default_message = "Only admins have a password. Make them an admin first."
+
+
+class EmailAlreadyVerified(Conflict):
+    code = "email_already_verified"
+    default_message = "Your email address is already confirmed."
