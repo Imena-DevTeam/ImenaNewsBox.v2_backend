@@ -8,16 +8,23 @@ import uuid
 from http import HTTPStatus
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, UploadFile
 
+from app.auth import service as auth_service
 from app.auth.dependencies import AdminUser, CurrentUser, require_owner_or_admin
+from app.auth.schemas import CodeSent
 from app.core.database.session import DbSession
+from app.core.email import EmailSender, get_email_sender
+from app.core.media import MediaStore, get_media_store, read_image
 from app.core.pagination import Page, Pagination
+from app.core.security import CODE_TTL
 from app.users import service
 from app.users.models import Role
 from app.users.schemas import (
     AccountListParams,
+    EmailConfirm,
     PasswordSet,
+    ProfileUpdate,
     PromotionRead,
     SubFamilyRead,
     UserCreate,
@@ -27,6 +34,9 @@ from app.users.schemas import (
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+Media = Annotated[MediaStore, Depends(get_media_store)]
+Email = Annotated[EmailSender, Depends(get_email_sender)]
 
 
 @router.get("")
@@ -47,6 +57,29 @@ async def create_user(body: UserCreate, admin: AdminUser, db: DbSession) -> User
 async def get_me(user: CurrentUser, db: DbSession) -> UserRead:
     """Your own account, with the private fields."""
     return UserRead.model_validate(await service.get_user(db, user.id))
+
+
+@router.patch("/me")
+async def update_me(body: ProfileUpdate, user: CurrentUser, db: DbSession) -> UserRead:
+    """Change your own display name or birthday. Admins change everything else."""
+    return UserRead.model_validate(await service.update_profile(db, user, body))
+
+
+@router.post("/me/email/resend")
+async def resend_email_confirmation(user: CurrentUser, db: DbSession, sender: Email) -> CodeSent:
+    """Email a new code to confirm your address (after an admin changed it, say)."""
+    await service.send_email_confirmation(db, sender, user)
+    return CodeSent(
+        message="A confirmation code is on its way.",
+        expires_in=int(CODE_TTL.total_seconds()),
+        resend_after=int(auth_service.CODE_RESEND_COOLDOWN.total_seconds()),
+    )
+
+
+@router.post("/me/email/verify")
+async def confirm_email(body: EmailConfirm, user: CurrentUser, db: DbSession) -> UserRead:
+    """Confirm your email address with the code sent to it."""
+    return UserRead.model_validate(await service.confirm_email(db, user, body.code))
 
 
 @router.get("/accounts")
@@ -95,10 +128,12 @@ async def get_account(user_id: uuid.UUID, user: CurrentUser, db: DbSession) -> U
 
 @router.patch("/{user_id}")
 async def update_user(
-    user_id: uuid.UUID, body: UserUpdate, admin: AdminUser, db: DbSession
+    user_id: uuid.UUID, body: UserUpdate, admin: AdminUser, db: DbSession, sender: Email
 ) -> UserRead:
-    """Admins: change any of a user's fields. Send only what changes."""
-    return UserRead.model_validate(await service.update_user(db, admin, user_id, body))
+    """Admins: change any of a user's fields. Send only what changes. A new email
+    address gets a confirmation code."""
+    account = await service.update_user(db, admin, user_id, body, sender)
+    return UserRead.model_validate(account)
 
 
 @router.post("/{user_id}/deactivate")
@@ -119,3 +154,32 @@ async def set_admin_password(
 ) -> None:
     """Admins: set an admin's password (at least 12 characters), e.g. after promoting them."""
     await service.set_admin_password(db, user_id, body.password.get_secret_value())
+
+
+@router.put("/{user_id}/photo")
+async def set_photo(
+    user_id: uuid.UUID,
+    photo: UploadFile,
+    user: CurrentUser,
+    db: DbSession,
+    media: Media,
+    background: BackgroundTasks,
+) -> UserRead:
+    """Upload a profile photo (multipart field `photo`: JPEG, PNG, WebP or HEIC, at most
+    5 MB): your own, or anyone's for admins. The photo it replaces is deleted afterwards."""
+    data = await read_image(photo)
+    account, replaced = await service.set_photo(db, user, user_id, data, media)
+    if replaced is not None:
+        background.add_task(media.delete_image, replaced)
+    return UserRead.model_validate(account)
+
+
+@router.delete("/{user_id}/photo")
+async def remove_photo(
+    user_id: uuid.UUID, user: CurrentUser, db: DbSession, media: Media, background: BackgroundTasks
+) -> UserRead:
+    """Remove a profile photo: your own, or anyone's for admins."""
+    account, removed = await service.remove_photo(db, user, user_id)
+    if removed is not None:
+        background.add_task(media.delete_image, removed)
+    return UserRead.model_validate(account)

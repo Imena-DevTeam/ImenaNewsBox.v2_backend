@@ -69,12 +69,17 @@ All under `/api/v1/users`, and all need an access token.
 | `GET /{id}` | any member | one active member as `UserPublicRead`; 404 `user_not_found` for unknown or deactivated users |
 | `GET /sub-families`, `GET /promotions` | any member | the fixed lookup lists, sorted by name. They're short and fixed, so they're plain lists, not pages |
 | `GET /me` | any member | your own account as `UserRead` |
+| `PATCH /me` | any member | changes your own `display_name` and `birthday` (null clears it), and nothing else: any other field is a 422. Returns `UserRead` |
+| `POST /me/email/verify` | any member | `{code}`: confirms your email with the code sent to it, and sets `email_verified_at`. 401 `invalid_code` otherwise; login codes don't work here |
+| `POST /me/email/resend` | any member | emails a new confirmation code (same limits as login codes: one a minute, ten a day). 409 `email_already_verified` if it's confirmed already |
 | `GET /{id}/account` | the user themselves, or an admin | one account as `UserRead`; admins also see deactivated users. Anyone else gets 403 `not_owner` |
 | `GET /accounts` | admins | every active account as `UserRead`, paginated; add `?include_deactivated=true` for deactivated ones too |
 | `POST /` | admins | registers a member (201, `UserRead`): `{family_name, display_name, email, sub_family_id, promotion_id?, birthday?, role?}`. Role defaults to `member`; an admin also needs a password before they can log in |
 | `PATCH /{id}` | admins | changes any fields of any user, deactivated ones included; send only what changes (`promotion_id` and `birthday` can be `null`). Returns `UserRead` |
 | `POST /{id}/deactivate` | admins | soft-deletes the user and signs them out of every device in the same transaction, so their next request fails. Repeating it changes nothing; admins can't deactivate themselves (409 `cannot_deactivate_self`) |
 | `POST /{id}/reactivate` | admins | lets them log in again. Old sessions stay revoked, so each device logs in from scratch |
+| `PUT /{id}/photo` | the user themselves, or an admin | uploads a profile photo (multipart field `photo`; JPEG, PNG, WebP or HEIC, at most 5 MB, checked by its content, not its name). Returns `UserRead`. Errors: 400 `unsupported_image`, 413 `image_too_large`, 502 `media_unavailable` |
+| `DELETE /{id}/photo` | the user themselves, or an admin | removes the photo. Returns `UserRead` |
 | `PUT /{id}/password` | admins | sets an admin's password, their own included (`{password}`, 12 to 256 characters; 204). For an admin who has none yet or forgot it; 409 `not_an_admin` for anyone else. Their sessions aren't touched |
 
 `UserPublicRead` is `{id, family_name, display_name, photo_url, sub_family: {id, name}, promotion: {id, name} | null, birthday: {month, day} | null}`. The year of birth is dropped inside the schema itself, so no route can send it to other members by mistake.
@@ -82,7 +87,7 @@ All under `/api/v1/users`, and all need an access token.
 `UserRead` adds the private fields: the full `birthday` date, `email`, `email_verified_at`, `role`, `has_password` (admins can't log in until it's true), `deactivated_at` and `created_at`. The password hash is never in any response.
 
 **Rules when an admin changes a user:**
-- **A new email** (not just different capitals) clears `email_verified_at`. Sending a confirmation code to the new address comes with the profile step.
+- **A new email** (not just different capitals) clears `email_verified_at` and emails a confirmation code to the new address. If that email can't be sent, the admin's change is still saved; the member asks for another code with `POST /me/email/resend`.
 - **Demoting an admin** removes their password, since only admins have one. **Promoting** someone to admin doesn't give them one: set it before they log in.
 - **Admins can't change their own role** (409 `cannot_change_own_role`), so the last admin can't demote themselves and leave nobody to manage users. They can change their other fields.
 
@@ -112,6 +117,8 @@ All under `/api/v1/users`, and all need an access token.
 ## Profile photos
 
 Profile photos are stored in **Cloudinary**: images up to 5 MB. We store the Cloudinary ID and URL, never a local file. When a photo is replaced, the old one is deleted in the background.
+
+The order matters: the new photo is uploaded and saved **before** the old one is deleted, so a failed upload never leaves a member without their photo. If the old delete is lost, Cloudinary just keeps an unused image. Cloudinary stores every photo as a JPEG of at most 1024 px a side, so HEIC photos from iPhones show in every browser.
 
 ## Data imported from v1
 
