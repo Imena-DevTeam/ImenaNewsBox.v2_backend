@@ -102,6 +102,9 @@ All under `/api/v1/users`, and all need an access token.
 - Any member can wish any other member, but **not themselves**.
 - **One wish per sender, per recipient, per year.** A database constraint enforces it.
 - Wishes can only be posted when the recipient's birthday is **today or within the next 30 days**. "Upcoming birthdays" also means the next 30 days.
+  - A wish is for the recipient's **next birthday**, and its `year` is that birthday's year (never the year of birth). On 20 December, a wish for a 5 January birthday is next year's wish.
+  - **29 February birthdays** fall on 28 February in years without a 29th.
+  - "Today" is the date in **UTC**, as in v1.
 - Senders can edit or delete their own wishes, and admins can delete any.
 - Wishes are kept as history. v1 deleted all wishes every night; v2 doesn't.
 - **Birthday emails are a later feature.** For now, the family's Slack covers birthday reminders.

@@ -197,3 +197,6 @@ Otherwise the only admin could demote themselves (or be tricked into it) and nob
 
 **60. A failed confirmation email doesn't undo an admin's email change.**
 When an admin changes a member's email, the change is committed first and the confirmation code is sent afterwards. If the provider is down (or the limits stop the code), the change stays saved and the reason is logged; the member can ask for a new code with `POST /users/me/email/resend`, or simply log in with a code sent to the new address, which also confirms it. Failing the admin's request instead would leave them unsure whether anything had changed.
+
+**61. Birthday dates use UTC, and 29 February falls on 28 February in other years.**
+The 30-day wish window and upcoming birthdays need a "today". The server's UTC date is the simplest single answer, and v1 used UTC too. For a family around UTC+2 the window opens and closes up to two hours late, which doesn't matter over 30 days. A leap-day birthday needs a date in the other three years; 28 February keeps it in its own month. Each wish stores the year of the birthday it's for, computed by the server rather than sent by the client, so a late-December wish for a January birthday counts as next year's.
