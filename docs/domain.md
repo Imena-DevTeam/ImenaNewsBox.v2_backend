@@ -76,6 +76,8 @@ All under `/api/v1/users`, and all need an access token.
 | `PATCH /{id}` | admins | changes any fields of any user, deactivated ones included; send only what changes (`promotion_id` and `birthday` can be `null`). Returns `UserRead` |
 | `POST /{id}/deactivate` | admins | soft-deletes the user and signs them out of every device in the same transaction, so their next request fails. Repeating it changes nothing; admins can't deactivate themselves (409 `cannot_deactivate_self`) |
 | `POST /{id}/reactivate` | admins | lets them log in again. Old sessions stay revoked, so each device logs in from scratch |
+| `PUT /{id}/photo` | the user themselves, or an admin | uploads a profile photo (multipart field `photo`; JPEG, PNG, WebP or HEIC, at most 5 MB, checked by its content, not its name). Returns `UserRead`. Errors: 400 `unsupported_image`, 413 `image_too_large`, 502 `media_unavailable` |
+| `DELETE /{id}/photo` | the user themselves, or an admin | removes the photo. Returns `UserRead` |
 | `PUT /{id}/password` | admins | sets an admin's password, their own included (`{password}`, 12 to 256 characters; 204). For an admin who has none yet or forgot it; 409 `not_an_admin` for anyone else. Their sessions aren't touched |
 
 `UserPublicRead` is `{id, family_name, display_name, photo_url, sub_family: {id, name}, promotion: {id, name} | null, birthday: {month, day} | null}`. The year of birth is dropped inside the schema itself, so no route can send it to other members by mistake.
@@ -113,6 +115,8 @@ All under `/api/v1/users`, and all need an access token.
 ## Profile photos
 
 Profile photos are stored in **Cloudinary**: images up to 5 MB. We store the Cloudinary ID and URL, never a local file. When a photo is replaced, the old one is deleted in the background.
+
+The order matters: the new photo is uploaded and saved **before** the old one is deleted, so a failed upload never leaves a member without their photo. If the old delete is lost, Cloudinary just keeps an unused image. Cloudinary stores every photo as a JPEG of at most 1024 px a side, so HEIC photos from iPhones show in every browser.
 
 ## Data imported from v1
 

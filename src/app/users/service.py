@@ -12,7 +12,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.auth.dependencies import require_owner_or_admin
 from app.auth.service import revoke_all_sessions
+from app.core.media import MediaStore
 from app.core.security import hash_password
 from app.users.exceptions import (
     CannotChangeOwnRole,
@@ -160,6 +162,46 @@ async def update_profile(db: AsyncSession, user: User, changes: ProfileUpdate) -
         setattr(user, name, value)
     await db.commit()
     return await get_user(db, user.id)
+
+
+# --- Photos ---
+
+
+async def set_photo(
+    db: AsyncSession, actor: User, user_id: uuid.UUID, data: bytes, media: MediaStore
+) -> tuple[User, str | None]:
+    """Upload a checked image as the user's photo (their own, or anyone's for admins).
+    Commits.
+
+    Returns the user and the public ID of the photo it replaced, for the caller to delete in
+    the background. The new photo is saved first, so a failed upload never loses the old one.
+    """
+    require_owner_or_admin(actor, user_id)
+    user = await get_user(db, user_id, include_deactivated=actor.role.at_least(Role.ADMIN))
+    uploaded = await media.upload_profile_photo(data)
+    replaced = user.photo_public_id
+    user.photo_public_id, user.photo_url = uploaded.public_id, uploaded.url
+    try:
+        await db.commit()
+    except Exception:
+        # Not saved, so the new upload would only be an orphan.
+        await media.delete_image(uploaded.public_id)
+        raise
+    return await get_user(db, user.id, include_deactivated=True), replaced
+
+
+async def remove_photo(
+    db: AsyncSession, actor: User, user_id: uuid.UUID
+) -> tuple[User, str | None]:
+    """Remove the user's photo (their own, or anyone's for admins). Commits. Returns the
+    user and the removed photo's public ID, for the caller to delete in the background."""
+    require_owner_or_admin(actor, user_id)
+    user = await get_user(db, user_id, include_deactivated=actor.role.at_least(Role.ADMIN))
+    removed = user.photo_public_id
+    if removed is not None or user.photo_url is not None:
+        user.photo_public_id = user.photo_url = None
+        await db.commit()
+    return await get_user(db, user.id, include_deactivated=True), removed
 
 
 async def deactivate_user(db: AsyncSession, actor: User, user_id: uuid.UUID) -> User:

@@ -8,10 +8,11 @@ import uuid
 from http import HTTPStatus
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, UploadFile
 
 from app.auth.dependencies import AdminUser, CurrentUser, require_owner_or_admin
 from app.core.database.session import DbSession
+from app.core.media import MediaStore, get_media_store, read_image
 from app.core.pagination import Page, Pagination
 from app.users import service
 from app.users.models import Role
@@ -28,6 +29,8 @@ from app.users.schemas import (
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+Media = Annotated[MediaStore, Depends(get_media_store)]
 
 
 @router.get("")
@@ -126,3 +129,32 @@ async def set_admin_password(
 ) -> None:
     """Admins: set an admin's password (at least 12 characters), e.g. after promoting them."""
     await service.set_admin_password(db, user_id, body.password.get_secret_value())
+
+
+@router.put("/{user_id}/photo")
+async def set_photo(
+    user_id: uuid.UUID,
+    photo: UploadFile,
+    user: CurrentUser,
+    db: DbSession,
+    media: Media,
+    background: BackgroundTasks,
+) -> UserRead:
+    """Upload a profile photo (multipart field `photo`: JPEG, PNG, WebP or HEIC, at most
+    5 MB): your own, or anyone's for admins. The photo it replaces is deleted afterwards."""
+    data = await read_image(photo)
+    account, replaced = await service.set_photo(db, user, user_id, data, media)
+    if replaced is not None:
+        background.add_task(media.delete_image, replaced)
+    return UserRead.model_validate(account)
+
+
+@router.delete("/{user_id}/photo")
+async def remove_photo(
+    user_id: uuid.UUID, user: CurrentUser, db: DbSession, media: Media, background: BackgroundTasks
+) -> UserRead:
+    """Remove a profile photo: your own, or anyone's for admins."""
+    account, removed = await service.remove_photo(db, user, user_id)
+    if removed is not None:
+        background.add_task(media.delete_image, removed)
+    return UserRead.model_validate(account)
