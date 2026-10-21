@@ -116,6 +116,8 @@ All under `/api/v1/wishes`, and all need an access token.
 | Endpoint | Who | Returns |
 |---|---|---|
 | `POST /` | any member | `{recipient_id, message}` (1 to 2000 characters): wishes an active member for their next birthday (201, `WishRead`). The server sets the `year`; sending one is a 422 |
+| `GET /received` | any member | wishes sent to you, newest first, paginated; `?year=` keeps one birthday's. Admins can add `?user_id=` to see anyone's; for anyone else that's a 403 `not_owner`. Wishes from deactivated members are kept and listed |
+| `GET /sent` | any member | wishes you sent, with the same options as `/received` |
 | `PATCH /{id}` | the sender only, not admins | `{message}`: changes the message. Returns `WishRead` |
 | `DELETE /{id}` | the sender, or an admin | deletes the wish (204) |
 

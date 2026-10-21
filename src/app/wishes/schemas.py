@@ -4,8 +4,9 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from app.core.pagination import PageParams
 from app.users.schemas import UserPublicRead
 from app.wishes.models import WISH_MESSAGE_MAX_LENGTH
 
@@ -41,3 +42,10 @@ class WishRead(BaseModel):
     message: str
     created_at: datetime
     updated_at: datetime
+
+
+class WishListParams(PageParams):
+    user_id: uuid.UUID | None = Field(
+        default=None, description="Admins only: list this user's wishes instead of yours."
+    )
+    year: int | None = Field(default=None, description="Only wishes for that year's birthday.")

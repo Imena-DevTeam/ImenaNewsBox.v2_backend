@@ -5,13 +5,15 @@ Fixed paths are declared before `/{wish_id}`, which would otherwise try to read 
 
 import uuid
 from http import HTTPStatus
+from typing import Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
-from app.auth.dependencies import CurrentUser
+from app.auth.dependencies import CurrentUser, require_owner_or_admin
 from app.core.database.session import DbSession
+from app.core.pagination import Page
 from app.wishes import service
-from app.wishes.schemas import WishCreate, WishRead, WishUpdate
+from app.wishes.schemas import WishCreate, WishListParams, WishRead, WishUpdate
 
 router = APIRouter(prefix="/wishes", tags=["wishes"])
 
@@ -22,6 +24,36 @@ async def send_wish(body: WishCreate, user: CurrentUser, db: DbSession) -> WishR
     once per birthday, and never yourself."""
     wish = await service.send_wish(db, user, body, on=service.today())
     return WishRead.model_validate(wish)
+
+
+@router.get("/received")
+async def list_received(
+    user: CurrentUser, db: DbSession, params: Annotated[WishListParams, Query()]
+) -> Page[WishRead]:
+    """Wishes sent to you, newest first; `year` keeps one birthday's. Admins can pass
+    `user_id` to see anyone's."""
+    owner_id = params.user_id or user.id
+    require_owner_or_admin(user, owner_id)
+    wishes, total = await service.list_wishes(
+        db, recipient_id=owner_id, year=params.year, offset=params.offset, limit=params.limit
+    )
+    items = [WishRead.model_validate(wish) for wish in wishes]
+    return Page.build(items, params=params, total=total)
+
+
+@router.get("/sent")
+async def list_sent(
+    user: CurrentUser, db: DbSession, params: Annotated[WishListParams, Query()]
+) -> Page[WishRead]:
+    """Wishes you sent, newest first; `year` keeps one birthday's. Admins can pass `user_id`
+    to see anyone's."""
+    owner_id = params.user_id or user.id
+    require_owner_or_admin(user, owner_id)
+    wishes, total = await service.list_wishes(
+        db, sender_id=owner_id, year=params.year, offset=params.offset, limit=params.limit
+    )
+    items = [WishRead.model_validate(wish) for wish in wishes]
+    return Page.build(items, params=params, total=total)
 
 
 @router.patch("/{wish_id}")

@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Final
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -78,6 +78,37 @@ async def get_wish(db: AsyncSession, wish_id: uuid.UUID) -> Wish:
     if wish is None:
         raise WishNotFound()
     return wish
+
+
+async def list_wishes(
+    db: AsyncSession,
+    *,
+    recipient_id: uuid.UUID | None = None,
+    sender_id: uuid.UUID | None = None,
+    year: int | None = None,
+    offset: int,
+    limit: int,
+) -> tuple[list[Wish], int]:
+    """Wishes to a recipient or from a sender, newest first. Deactivated members' wishes are
+    kept as history, so they're included."""
+    conditions = []
+    if recipient_id is not None:
+        conditions.append(Wish.recipient_id == recipient_id)
+    if sender_id is not None:
+        conditions.append(Wish.sender_id == sender_id)
+    if year is not None:
+        conditions.append(Wish.year == year)
+    total = await db.scalar(select(func.count()).select_from(Wish).where(*conditions))
+    wishes = await db.scalars(
+        _with_people(
+            select(Wish)
+            .where(*conditions)
+            .order_by(Wish.created_at.desc(), Wish.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    )
+    return list(wishes), total or 0
 
 
 async def send_wish(db: AsyncSession, sender: User, data: WishCreate, *, on: date) -> Wish:

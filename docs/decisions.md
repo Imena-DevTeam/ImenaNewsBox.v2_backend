@@ -200,3 +200,6 @@ When an admin changes a member's email, the change is committed first and the co
 
 **61. Birthday dates use UTC, and 29 February falls on 28 February in other years.**
 The 30-day wish window and upcoming birthdays need a "today". The server's UTC date is the simplest single answer, and v1 used UTC too. For a family around UTC+2 the window opens and closes up to two hours late, which doesn't matter over 30 days. A leap-day birthday needs a date in the other three years; 28 February keeps it in its own month. Each wish stores the year of the birthday it's for, computed by the server rather than sent by the client, so a late-December wish for a January birthday counts as next year's.
+
+**62. A wish is seen by its sender, its recipient and admins.**
+Members list the wishes they received and the ones they sent; admins can list anyone's, because they need to find a wish to delete it. There's no shared "wall" of everyone's wishes: nothing asked for one, and it's easy to add later, while making private messages public can't be undone. Only the sender can edit a wish, not even an admin, so a message never says something its sender didn't write; admins can still delete it.
