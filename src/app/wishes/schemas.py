@@ -1,7 +1,7 @@
 """Pydantic request/response models (DTOs)."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -49,3 +49,10 @@ class WishListParams(PageParams):
         default=None, description="Admins only: list this user's wishes instead of yours."
     )
     year: int | None = Field(default=None, description="Only wishes for that year's birthday.")
+
+
+class UpcomingBirthday(BaseModel):
+    member: UserPublicRead
+    falls_on: date = Field(description="The birthday's next date (its year, not the birth year).")
+    days_until: int = Field(description="0 on the day itself.")
+    wished: bool = Field(description="Whether you've already wished them for this birthday.")

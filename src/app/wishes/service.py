@@ -2,6 +2,7 @@
 
 import calendar
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Final
 
@@ -56,6 +57,55 @@ def days_until_birthday(birthday: date, on: date) -> int:
 def is_wishable(birthday: date, on: date) -> bool:
     """Whether the birthday is today or within the next `WISH_WINDOW_DAYS` days."""
     return days_until_birthday(birthday, on) <= WISH_WINDOW_DAYS
+
+
+# --- Upcoming birthdays ---
+
+
+@dataclass(frozen=True, slots=True)
+class UpcomingBirthday:
+    member: User
+    falls_on: date
+    days_until: int
+    wished: bool
+
+
+async def upcoming_birthdays(db: AsyncSession, viewer: User, *, on: date) -> list[UpcomingBirthday]:
+    """Active members whose birthday is today or within 30 days of `on`, soonest first, and
+    whether `viewer` has wished them yet. The viewer's own birthday is included.
+
+    Computed in Python from every active member's birthday: a family is small, and the year
+    wrap and 29 February are much clearer here than in SQL.
+    """
+    rows = await db.execute(
+        select(User.id, User.birthday).where(
+            User.deactivated_at.is_(None), User.birthday.is_not(None)
+        )
+    )
+    coming: dict[uuid.UUID, date] = {}
+    for user_id, birthday in rows:
+        if birthday is not None and is_wishable(birthday, on):
+            coming[user_id] = next_birthday(birthday, on)
+    if not coming:
+        return []
+
+    wishes = await db.execute(
+        select(Wish.recipient_id, Wish.year).where(
+            Wish.sender_id == viewer.id, Wish.recipient_id.in_(coming)
+        )
+    )
+    wished = {(recipient_id, year) for recipient_id, year in wishes}
+    upcoming = [
+        UpcomingBirthday(
+            member=member,
+            falls_on=coming[member.id],
+            days_until=(coming[member.id] - on).days,
+            wished=(member.id, coming[member.id].year) in wished,
+        )
+        for member in await users_service.get_users(db, coming.keys())
+    ]
+    upcoming.sort(key=lambda u: (u.days_until, u.member.display_name.lower(), u.member.id))
+    return upcoming
 
 
 # --- Wishes ---

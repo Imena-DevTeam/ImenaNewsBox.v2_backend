@@ -203,3 +203,6 @@ The 30-day wish window and upcoming birthdays need a "today". The server's UTC d
 
 **62. A wish is seen by its sender, its recipient and admins.**
 Members list the wishes they received and the ones they sent; admins can list anyone's, because they need to find a wish to delete it. There's no shared "wall" of everyone's wishes: nothing asked for one, and it's easy to add later, while making private messages public can't be undone. Only the sender can edit a wish, not even an admin, so a message never says something its sender didn't write; admins can still delete it.
+
+**63. Upcoming birthdays are worked out in Python, not SQL.**
+The endpoint reads every active member's birthday (two columns) and picks the next 30 days in Python, with the same `next_birthday` function the wish window uses. The year wrap and 29 February are hard to read in SQL, and having one function for both rules means the list and the window can't disagree. A family has hundreds of members at most, so it's one small query. If that ever grows, the filter can move into SQL behind the same function's tests.

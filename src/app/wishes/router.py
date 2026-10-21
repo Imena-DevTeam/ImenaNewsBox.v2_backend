@@ -12,8 +12,15 @@ from fastapi import APIRouter, Query
 from app.auth.dependencies import CurrentUser, require_owner_or_admin
 from app.core.database.session import DbSession
 from app.core.pagination import Page
+from app.users.schemas import UserPublicRead
 from app.wishes import service
-from app.wishes.schemas import WishCreate, WishListParams, WishRead, WishUpdate
+from app.wishes.schemas import (
+    UpcomingBirthday,
+    WishCreate,
+    WishListParams,
+    WishRead,
+    WishUpdate,
+)
 
 router = APIRouter(prefix="/wishes", tags=["wishes"])
 
@@ -24,6 +31,22 @@ async def send_wish(body: WishCreate, user: CurrentUser, db: DbSession) -> WishR
     once per birthday, and never yourself."""
     wish = await service.send_wish(db, user, body, on=service.today())
     return WishRead.model_validate(wish)
+
+
+@router.get("/upcoming-birthdays")
+async def list_upcoming_birthdays(user: CurrentUser, db: DbSession) -> list[UpcomingBirthday]:
+    """Active members whose birthday is today or in the next 30 days, soonest first, and
+    whether you've wished them yet. A month of birthdays is short, so it's not paginated."""
+    upcoming = await service.upcoming_birthdays(db, user, on=service.today())
+    return [
+        UpcomingBirthday(
+            member=UserPublicRead.model_validate(item.member),
+            falls_on=item.falls_on,
+            days_until=item.days_until,
+            wished=item.wished,
+        )
+        for item in upcoming
+    ]
 
 
 @router.get("/received")
