@@ -5,24 +5,34 @@ the HTTP API with `httpx`. Reads use `SANITY_API_READ_TOKEN`, writes `SANITY_API
 Reads go to the live API (`api.sanity.io`), never the API CDN: posts are cached in-process
 already, and two caches would stack staleness. Only published documents are returned.
 
-Webhook signature checks are added with the posts feature.
+`verify_webhook_signature` checks the signature Sanity puts on webhook calls.
 """
 
+import base64
+import hashlib
+import hmac
 import logging
+import re
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from typing import Any, Final, Protocol
 
 import httpx
 
 from app.core.config import Settings, get_settings
-from app.core.exceptions import AppError
+from app.core.exceptions import AppError, Unauthorized
 
 logger = logging.getLogger(__name__)
 
 API_VERSION: Final = "v2025-02-19"
 TIMEOUT: Final = httpx.Timeout(10.0, connect=5.0)
 UPLOAD_TIMEOUT: Final = httpx.Timeout(30.0, connect=5.0)
+WEBHOOK_SIGNATURE_HEADER: Final = "sanity-webhook-signature"
+# Older calls are refused, so a recorded call can't be replayed later.
+WEBHOOK_MAX_AGE: Final = timedelta(minutes=5)
+# As Sanity's own `@sanity/webhook` library reads it: `t=<unix ms>,v1=<signature>`.
+_WEBHOOK_SIGNATURE: Final = re.compile(r"^t=(\d{1,16})[, ]+v1=([^, ]+)$")
 
 
 class SanityUnavailable(AppError):
@@ -127,3 +137,36 @@ class SanityClient:
 def get_sanity() -> Sanity:
     """FastAPI dependency. Tests override it with a fake."""
     return SanityClient(get_settings())
+
+
+# --- Webhooks ---
+
+
+class InvalidWebhookSignature(Unauthorized):
+    code = "invalid_signature"
+    default_message = "The webhook signature is missing or invalid."
+
+
+def verify_webhook_signature(
+    body: bytes, header: str | None, secret: str, *, now: datetime | None = None
+) -> None:
+    """Check a webhook call's `sanity-webhook-signature` header against its raw body.
+
+    Same scheme as Sanity's `@sanity/webhook` library: an HMAC-SHA256 of `"<t>.<body>"` with
+    the webhook's secret, base64url without padding. On top of that, calls more than
+    `WEBHOOK_MAX_AGE` from now are refused. Raises `SanityNotConfigured` without a secret and
+    `InvalidWebhookSignature` otherwise.
+    """
+    if not secret:
+        raise SanityNotConfigured()
+    match = _WEBHOOK_SIGNATURE.match((header or "").strip())
+    if match is None:
+        raise InvalidWebhookSignature()
+    timestamp, signature = match.group(1), match.group(2)
+    sent_at = datetime.fromtimestamp(int(timestamp) / 1000, UTC)
+    if abs((now or datetime.now(UTC)) - sent_at) > WEBHOOK_MAX_AGE:
+        raise InvalidWebhookSignature()
+    digest = hmac.new(secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256).digest()
+    expected = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    if not hmac.compare_digest(expected, signature):
+        raise InvalidWebhookSignature()

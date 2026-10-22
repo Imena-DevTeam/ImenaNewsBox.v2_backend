@@ -4,17 +4,25 @@ Every route takes `CurrentUser` (or a role) first, so the login is checked befor
 cache is consulted.
 """
 
+import logging
 from http import HTTPStatus
-from typing import Annotated
+from typing import Annotated, Final
 
-from fastapi import APIRouter, Depends, Path, Query, UploadFile
+from fastapi import APIRouter, Depends, Path, Query, Request, UploadFile
 
 from app.auth.dependencies import AdminUser, CurrentUser, SocialMediaManagerUser
+from app.core.config import Settings, get_settings
 from app.core.database.session import DbSession
 from app.core.media import read_image
 from app.core.pagination import Page
-from app.core.sanity import Sanity, get_sanity
+from app.core.sanity import (
+    WEBHOOK_SIGNATURE_HEADER,
+    Sanity,
+    get_sanity,
+    verify_webhook_signature,
+)
 from app.posts import service
+from app.posts.exceptions import WebhookTooLarge
 from app.posts.schemas import (
     AuthorRead,
     PostCreate,
@@ -26,6 +34,8 @@ from app.posts.schemas import (
 )
 from app.users.schemas import SANITY_ID_PATTERN
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/posts", tags=["posts"])
 
 SanityApi = Annotated[Sanity, Depends(get_sanity)]
@@ -33,6 +43,8 @@ SanityApi = Annotated[Sanity, Depends(get_sanity)]
 Slug = Annotated[str, Path(min_length=1, max_length=200)]
 # Writes use the post's Sanity ID, which never changes (a slug can).
 PostId = Annotated[str, Path(pattern=SANITY_ID_PATTERN, max_length=128)]
+# Sanity sends the changed document (or only what the webhook's projection asks for).
+MAX_WEBHOOK_BYTES: Final = 1024 * 1024
 
 
 @router.get("")
@@ -62,6 +74,27 @@ async def upload_image(
     """Social media managers and admins: upload a post's image (multipart field `image`:
     JPEG, PNG or WebP, at most 5 MB), then send its `asset_id` with the post."""
     return await service.upload_image(sanity, await read_image(image))
+
+
+@router.post("/webhook", status_code=HTTPStatus.NO_CONTENT)
+async def sanity_webhook(
+    request: Request, settings: Annotated[Settings, Depends(get_settings)]
+) -> None:
+    """Called by Sanity when a post or author changes (e.g. in the Studio): clears the posts
+    cache. No login: the call is checked by its signature instead. The body is never used,
+    only signed, so a valid call can do nothing but clear the cache."""
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_WEBHOOK_BYTES:
+            raise WebhookTooLarge()
+    verify_webhook_signature(
+        bytes(body),
+        request.headers.get(WEBHOOK_SIGNATURE_HEADER),
+        settings.sanity_webhook_secret.get_secret_value(),
+    )
+    service.clear_cache()
+    logger.info("Posts cache cleared by the Sanity webhook")
 
 
 @router.get("/authors")

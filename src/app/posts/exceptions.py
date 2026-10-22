@@ -1,6 +1,8 @@
 """Exceptions raised by this feature."""
 
-from app.core.exceptions import BadRequest, Conflict, NotFound
+from http import HTTPStatus
+
+from app.core.exceptions import AppError, BadRequest, Conflict, NotFound
 
 
 class PostNotFound(NotFound):
@@ -29,3 +31,9 @@ class SlugTaken(Conflict):
 class UnknownImage(BadRequest):
     code = "unknown_image"
     default_message = "That image doesn't exist. Upload it with POST /posts/images first."
+
+
+class WebhookTooLarge(AppError):
+    status_code = HTTPStatus.CONTENT_TOO_LARGE
+    code = "payload_too_large"
+    default_message = "The webhook body is too large."

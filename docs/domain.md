@@ -167,6 +167,7 @@ All under `/api/v1/posts`, and all need an access token.
 | `GET /{slug}` | any member | one published post with its `body` and `updated_at`; 404 `post_not_found` |
 | `PATCH /{id}` | social media managers and admins | changes **any** post's fields (by its Sanity ID, which never changes; a slug can). Send only what changes; nothing can be cleared. The author stays the original writer. Returns `PostRead`. Errors: 404 `post_not_found`, 409 `slug_taken`, 400 `unknown_image` |
 | `DELETE /{id}` | social media managers and admins | deletes any post (204). Its image stays in Sanity unused |
+| `POST /webhook` | Sanity only, **no login** | clears the posts cache when a post or author changes in the Studio (204). Checked by its `sanity-webhook-signature` instead of a token; 401 `invalid_signature` otherwise. The body is never used. Setup: [Infrastructure → Setting up Sanity](infrastructure.md#setting-up-sanity) |
 
 Any social media manager can edit or delete any post, not only their own: it's one small team running one blog (decision 64's link only decides who a *new* post is credited to).
 
