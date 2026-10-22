@@ -14,7 +14,7 @@ flowchart LR
     R --> N[("Neon (free)<br/>Postgres")]
     R --> S["Sanity<br/>blog content"]
     R --> C["Cloudinary<br/>profile photos"]
-    R --> M["Email provider<br/>(Resend or Gmail API)"]
+    R --> M["SMTP server<br/>(email)"]
     S -->|webhook| R
 ```
 
@@ -26,7 +26,7 @@ flowchart LR
 | Keep-awake | UptimeRobot | Pings `/health` every 5 minutes so Render doesn't put the app to sleep |
 | Blog | Sanity | Private dataset; only our backend talks to it |
 | Photos | Cloudinary | Profile photos only |
-| Email | Resend or Gmail API | Not chosen yet; always over HTTPS |
+| Email | SMTP server | Plain SMTP with STARTTLS or TLS, sent with `aiosmtplib`; server and account to be chosen by the team |
 
 ## Free-tier limits we design around
 

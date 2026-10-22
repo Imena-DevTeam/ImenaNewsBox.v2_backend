@@ -32,7 +32,7 @@ Render free puts the app to sleep after 15 idle minutes, and the first request a
 **8. No Celery, no Redis.**
 v1's only background job was a nightly wish purge, which v2 drops. The remaining work is tiny: login codes are sent during the request, photo cleanup uses FastAPI `BackgroundTasks`, and expired rows are cleaned up during login. Workers would need a paid plan anyway.
 
-**9. Email over an HTTP API: Resend or the Gmail API (open).**
+**9. Email over an HTTP API: Resend or the Gmail API (open).** *Replaced by 68.*
 Render free blocks SMTP, so v1's Gmail SMTP approach can't work. Resend needs a verified domain; the Gmail API is free with no domain but needs a one-time OAuth setup. The choice is open. All email goes through `core/email.py`, so switching later is easy.
 
 **10. Sanity for the blog; Cloudinary only for profile photos.**
@@ -143,7 +143,7 @@ A 6-digit code has only a million possible values, so a plain SHA-256 could be r
 **42. Access tokens carry a session ID, and expired tokens get their own error code.**
 Access tokens hold the user ID and the ID of the session that issued them (so "this device" can be marked in the sessions list), never the role. An expired token returns `token_expired` and any other bad token `invalid_token`, so the frontend knows when to refresh and when to log out. Password hashing runs in a worker thread because Argon2 is deliberately slow, and verifying against a missing hash still spends the same time, so response times don't reveal which family names exist.
 
-**43. Code emails: 5-second timeout, one retry, and a clear error without a provider.**
+**43. Code emails: 5-second timeout, one retry, and a clear error without a provider.** *(The provider is now SMTP: see 68.)*
 Each send attempt gets 5 seconds, and a failed or timed-out attempt is retried once, so the worst case is about 10 seconds before the user sees `email_not_sent` (503) and can resend. A provider only implements `send(message)`; building the message and the retry are shared. Until a provider is chosen, sending fails with `email_not_configured` (503) rather than silently doing nothing, and codes are never written to logs as a stand-in.
 
 **44. Profile photos are checked by content and stored small.**
@@ -218,3 +218,6 @@ The Studio requires no fields and Sanity's API accepts any document, so a post w
 
 **67. The Sanity webhook only clears the cache, checked by signature and age.**
 It's one of the few endpoints without a login, so it can do only one harmless thing: clear the posts cache. Its body is never parsed or trusted, only signed. The signature follows Sanity's `@sanity/webhook` library exactly (an HMAC-SHA256 of `"<timestamp>.<body>"`, base64url), which a test checks against a signature made by that library. On top of it, calls signed more than 5 minutes away from now are refused, so a captured call can't be replayed later; the library doesn't check that itself. Even a flood of valid calls would only make the next reads go to Sanity.
+
+**68. Email is plain SMTP, sent asynchronously.**
+We're deploying with Docker on a VPS instead of Render's free plan, which blocked outgoing SMTP, so the reason for an HTTP email API is gone and the team chose plain SMTP. It's sent with `aiosmtplib`, because the standard `smtplib` blocks and would hold up every other request while a mail server answers. The rest of decision 43 stands: 5 seconds per attempt, one retry, and `email_not_configured` until `SMTP_HOST` and `EMAIL_FROM` are set. With `starttls` or `tls`, the server's certificate is checked and the connection never falls back to plain text; `none` is only for a relay on the same machine, so the settings refuse a username or password without TLS. Each code opens its own connection, since codes are rare. Errors are reported by type only, because SMTP replies can repeat the recipient's address. Message IDs use the sending domain, not the server's hostname.
