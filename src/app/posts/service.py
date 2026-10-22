@@ -13,9 +13,10 @@ from cachetools import TTLCache
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.media import detect_image_format
 from app.core.sanity import Sanity
-from app.posts.exceptions import PostNotFound, UnknownAuthor
-from app.posts.schemas import AuthorRead, PostRead, PostSummary
+from app.posts.exceptions import PostNotFound, UnknownAuthor, UnsupportedPostImage
+from app.posts.schemas import AuthorRead, PostImageUploaded, PostRead, PostSummary
 from app.users import service as users_service
 from app.users.exceptions import NotAWriter
 from app.users.models import Role, User
@@ -144,3 +145,21 @@ async def link_author(
         if not found:
             raise UnknownAuthor()
     return await users_service.set_sanity_author(db, user, author_id)
+
+
+# --- Images ---
+
+_POST_IMAGE_TYPES: Final = {"jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+
+async def upload_image(sanity: Sanity, data: bytes) -> PostImageUploaded:
+    """Store an image (already checked by `read_image`) in Sanity for a post to use.
+
+    Nothing is cached or changed until a post uses it. An image no post ever uses stays in
+    Sanity unused, like a lost Cloudinary delete.
+    """
+    content_type = _POST_IMAGE_TYPES.get(detect_image_format(data) or "")
+    if content_type is None:
+        raise UnsupportedPostImage()
+    asset = await sanity.upload_image(data, content_type=content_type)
+    return PostImageUploaded(asset_id=asset["_id"], url=asset["url"])

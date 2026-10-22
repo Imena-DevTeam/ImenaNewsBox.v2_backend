@@ -257,3 +257,10 @@ class PostUpdate(BaseModel):
             if getattr(self, name) is None:
                 raise ValueError(f"{name} can't be null")
         return self
+
+
+class PostImageUploaded(BaseModel):
+    """Send `asset_id` as the post's `image_asset_id`."""
+
+    asset_id: str
+    url: str

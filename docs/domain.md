@@ -161,6 +161,7 @@ All under `/api/v1/posts`, and all need an access token.
 | Endpoint | Who | Returns |
 |---|---|---|
 | `GET /` | any member | published posts, newest first, without their body, paginated; `?category=` keeps one category's (exact match). Only posts with a slug are listed, since posts are opened by slug |
+| `POST /images` | social media managers and admins | uploads a post image to Sanity (multipart field `image`: JPEG, PNG or WebP, at most 5 MB, checked by its content). 201 `{asset_id, url}`; send `asset_id` with the post. HEIC isn't accepted here (unlike profile photos): Sanity keeps post images as they are, and most browsers can't show HEIC. An image no post uses stays in Sanity unused |
 | `GET /authors` | admins | every published Sanity author by name, `[{id, name, image_url, user_id}]`, where `user_id` is the member it's linked to (or `null`). For linking authors; not cached |
 | `GET /{slug}` | any member | one published post with its `body` and `updated_at`; 404 `post_not_found` |
 

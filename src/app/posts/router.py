@@ -4,16 +4,24 @@ Every route takes `CurrentUser` (or a role) first, so the login is checked befor
 cache is consulted.
 """
 
+from http import HTTPStatus
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, UploadFile
 
-from app.auth.dependencies import AdminUser, CurrentUser
+from app.auth.dependencies import AdminUser, CurrentUser, SocialMediaManagerUser
 from app.core.database.session import DbSession
+from app.core.media import read_image
 from app.core.pagination import Page
 from app.core.sanity import Sanity, get_sanity
 from app.posts import service
-from app.posts.schemas import AuthorRead, PostListParams, PostRead, PostSummary
+from app.posts.schemas import (
+    AuthorRead,
+    PostImageUploaded,
+    PostListParams,
+    PostRead,
+    PostSummary,
+)
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -31,6 +39,15 @@ async def list_posts(
         sanity, offset=params.offset, limit=params.limit, category=params.category
     )
     return Page.build(items, params=params, total=total)
+
+
+@router.post("/images", status_code=HTTPStatus.CREATED)
+async def upload_image(
+    image: UploadFile, writer: SocialMediaManagerUser, sanity: SanityApi
+) -> PostImageUploaded:
+    """Social media managers and admins: upload a post's image (multipart field `image`:
+    JPEG, PNG or WebP, at most 5 MB), then send its `asset_id` with the post."""
+    return await service.upload_image(sanity, await read_image(image))
 
 
 @router.get("/authors")
