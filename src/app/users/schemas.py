@@ -23,9 +23,17 @@ from pydantic import (
 
 from app.auth.schemas import PASSWORD_MAX_LENGTH, Code, FamilyName
 from app.core.pagination import PageParams
-from app.users.models import DISPLAY_NAME_MAX_LENGTH, EMAIL_MAX_LENGTH, Role
+from app.users.models import (
+    DISPLAY_NAME_MAX_LENGTH,
+    EMAIL_MAX_LENGTH,
+    SANITY_ID_MAX_LENGTH,
+    Role,
+)
 
 EARLIEST_BIRTHDAY: Final = date(1900, 1, 1)
+# Published Sanity document IDs: Studio makes UUIDs, and we make `author-<user id>`.
+# No dots: those mark drafts and other unpublished versions.
+SANITY_ID_PATTERN: Final = r"^[A-Za-z0-9_-]+$"
 MIN_ADMIN_PASSWORD_LENGTH: Final = 12
 
 
@@ -180,3 +188,17 @@ class ProfileUpdate(BaseModel):
 
 class EmailConfirm(BaseModel):
     code: Code
+
+
+SanityId = Annotated[
+    str,
+    StringConstraints(pattern=SANITY_ID_PATTERN, min_length=1, max_length=SANITY_ID_MAX_LENGTH),
+]
+
+
+class AuthorLink(BaseModel):
+    """`author_id`: a Sanity author's ID (from `GET /posts/authors`), or null to unlink."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    author_id: SanityId | None

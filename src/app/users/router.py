@@ -17,11 +17,14 @@ from app.core.database.session import DbSession
 from app.core.email import EmailSender, get_email_sender
 from app.core.media import MediaStore, get_media_store, read_image
 from app.core.pagination import Page, Pagination
+from app.core.sanity import Sanity, get_sanity
 from app.core.security import CODE_TTL
+from app.posts import service as posts_service
 from app.users import service
 from app.users.models import Role
 from app.users.schemas import (
     AccountListParams,
+    AuthorLink,
     EmailConfirm,
     PasswordSet,
     ProfileUpdate,
@@ -37,6 +40,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 Media = Annotated[MediaStore, Depends(get_media_store)]
 Email = Annotated[EmailSender, Depends(get_email_sender)]
+SanityApi = Annotated[Sanity, Depends(get_sanity)]
 
 
 @router.get("")
@@ -154,6 +158,16 @@ async def set_admin_password(
 ) -> None:
     """Admins: set an admin's password (at least 12 characters), e.g. after promoting them."""
     await service.set_admin_password(db, user_id, body.password.get_secret_value())
+
+
+@router.put("/{user_id}/sanity-author")
+async def link_sanity_author(
+    user_id: uuid.UUID, body: AuthorLink, admin: AdminUser, db: DbSession, sanity: SanityApi
+) -> UserRead:
+    """Admins: credit a user's blog posts to an existing Sanity author (`null` unlinks), so
+    someone who wrote posts in the Studio keeps one author. Each author links to one user."""
+    account = await posts_service.link_author(db, sanity, user_id, body.author_id)
+    return UserRead.model_validate(account)
 
 
 @router.put("/{user_id}/photo")

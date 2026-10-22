@@ -6,13 +6,18 @@ every successful write (and the Sanity webhook) clears it. It only works because
 runs a single instance.
 """
 
+import uuid
 from typing import Any, Final
 
 from cachetools import TTLCache
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.sanity import Sanity
-from app.posts.exceptions import PostNotFound
-from app.posts.schemas import PostRead, PostSummary
+from app.posts.exceptions import PostNotFound, UnknownAuthor
+from app.posts.schemas import AuthorRead, PostRead, PostSummary
+from app.users import service as users_service
+from app.users.models import User
 
 CACHE_TTL_SECONDS: Final = 600
 CACHE_MAX_ENTRIES: Final = 256
@@ -95,3 +100,43 @@ async def get_post(sanity: Sanity, slug: str) -> PostRead:
     if not isinstance(result, dict):
         raise PostNotFound()
     return PostRead.model_validate(result)
+
+
+# --- Authors ---
+
+_AUTHORS = (
+    '*[_type == "author"] | order(lower(name) asc, _id asc)'
+    '{"id": _id, name, "image_url": image.asset->url}'
+)
+
+
+async def list_authors(db: AsyncSession, sanity: Sanity) -> list[AuthorRead]:
+    """Every published Sanity author by name, with the user each is linked to. Not cached:
+    only admins use it, to link authors."""
+    authors = await sanity.query(_AUTHORS) or []
+    ids = [author["id"] for author in authors]
+    linked: dict[str | None, uuid.UUID] = {}
+    if ids:
+        rows = await db.execute(
+            select(User.sanity_author_id, User.id).where(User.sanity_author_id.in_(ids))
+        )
+        linked = {author_id: user_id for author_id, user_id in rows}
+    return [
+        AuthorRead.model_validate({**author, "user_id": linked.get(author["id"])})
+        for author in authors
+    ]
+
+
+async def link_author(
+    db: AsyncSession, sanity: Sanity, user_id: uuid.UUID, author_id: str | None
+) -> User:
+    """Credit a user's posts to an existing, published Sanity author (None unlinks). Commits.
+
+    Raises `UserNotFound`, `UnknownAuthor` or `AuthorAlreadyLinked`.
+    """
+    user = await users_service.get_user(db, user_id, include_deactivated=True)
+    if author_id is not None:
+        found = await sanity.query('count(*[_type == "author" && _id == $id])', {"id": author_id})
+        if not found:
+            raise UnknownAuthor()
+    return await users_service.set_sanity_author(db, user, author_id)

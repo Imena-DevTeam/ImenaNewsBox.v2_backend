@@ -50,3 +50,8 @@ class NotAnAdmin(Conflict):
 class EmailAlreadyVerified(Conflict):
     code = "email_already_verified"
     default_message = "Your email address is already confirmed."
+
+
+class AuthorAlreadyLinked(Conflict):
+    code = "author_already_linked"
+    default_message = "That Sanity author is already linked to another member."

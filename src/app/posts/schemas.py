@@ -5,6 +5,7 @@ requires none), and it should still show instead of breaking the list. Writes th
 require every field.
 """
 
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -53,3 +54,12 @@ class PostListParams(PageParams):
     category: str | None = Field(
         default=None, max_length=100, description="Only posts in this category (exact match)."
     )
+
+
+class AuthorRead(BaseModel):
+    """A Sanity author, and the member it's linked to (if any)."""
+
+    id: str
+    name: str | None = None
+    image_url: str | None = None
+    user_id: uuid.UUID | None = None

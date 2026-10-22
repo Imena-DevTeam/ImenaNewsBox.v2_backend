@@ -80,6 +80,7 @@ All under `/api/v1/users`, and all need an access token.
 | `POST /{id}/reactivate` | admins | lets them log in again. Old sessions stay revoked, so each device logs in from scratch |
 | `PUT /{id}/photo` | the user themselves, or an admin | uploads a profile photo (multipart field `photo`; JPEG, PNG, WebP or HEIC, at most 5 MB, checked by its content, not its name). Returns `UserRead`. Errors: 400 `unsupported_image`, 413 `image_too_large`, 502 `media_unavailable` |
 | `DELETE /{id}/photo` | the user themselves, or an admin | removes the photo. Returns `UserRead` |
+| `PUT /{id}/sanity-author` | admins | `{author_id}`: credits the user's blog posts to an existing Sanity author, or unlinks with `null` (see Blog posts → Authors). Returns `UserRead`. Errors: 400 `unknown_author`, 409 `author_already_linked` |
 | `PUT /{id}/password` | admins | sets an admin's password, their own included (`{password}`, 12 to 256 characters; 204). For an admin who has none yet or forgot it; 409 `not_an_admin` for anyone else. Their sessions aren't touched |
 
 `UserPublicRead` is `{id, family_name, display_name, photo_url, sub_family: {id, name}, promotion: {id, name} | null, birthday: {month, day} | null}`. The year of birth is dropped inside the schema itself, so no route can send it to other members by mistake.
@@ -159,7 +160,13 @@ All under `/api/v1/posts`, and all need an access token.
 | Endpoint | Who | Returns |
 |---|---|---|
 | `GET /` | any member | published posts, newest first, without their body, paginated; `?category=` keeps one category's (exact match). Only posts with a slug are listed, since posts are opened by slug |
+| `GET /authors` | admins | every published Sanity author by name, `[{id, name, image_url, user_id}]`, where `user_id` is the member it's linked to (or `null`). For linking authors; not cached |
 | `GET /{slug}` | any member | one published post with its `body` and `updated_at`; 404 `post_not_found` |
+
+**Authors.** Posts are credited to Sanity `author` documents, and each member can be linked to one author through `users.sanity_author_id`:
+- A post written through our app is credited to its writer's author. If the writer isn't linked yet, the backend creates an author for them on their first post.
+- Members who wrote posts in the Studio already have an author. An admin links them once with `PUT /api/v1/users/{id}/sanity-author` `{author_id}` (see the Users API), so their old and new posts share one author instead of two with the same name.
+- An author can belong to only one member (409 `author_already_linked`), and must be a published author in Sanity (400 `unknown_author`). `{"author_id": null}` unlinks.
 
 Reads accept posts with missing fields (each field can be `null`), so a post made in the Studio never breaks the list. If Sanity is down: 502 `cms_unavailable`.
 
