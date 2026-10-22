@@ -138,6 +138,31 @@ All under `/api/v1/wishes`, and all need an access token.
 - Image uploads for posts also go through our API to Sanity.
 - Reads are cached on the backend (see [Infrastructure → Caching](infrastructure.md#caching)).
 
+**The post fields in Sanity** (from the existing documents; the Studio requires none of them):
+
+| Sanity field | Our API | What it is |
+|---|---|---|
+| `title`, `summary` | `title`, `summary` | text |
+| `slug.current` | `slug` | the post's URL name, e.g. `visit-to-ikuzwe` |
+| `categories` | `category` | **one** free-text category, despite the plural name |
+| `publishedAt` | `published_at` | date and time |
+| `image` | `image: {url, width, height, hotspot, crop}` | the main image, stored in Sanity, with its cropping data |
+| `author` | `author: {id, name, image_url}` | a reference to an `author` document (`name`, `image`) |
+| `body` | `body` | Portable Text: Normal, Heading 1–6 and Quote blocks; bold, italic, code, underline, strikethrough; bullet and numbered lists; links. No images inside the body |
+
+Sanity serves image files from its CDN to anyone who has the URL, even though the dataset itself is private. That's the same as Cloudinary profile photos: the URLs are long and unguessable, but not secret.
+
+### Posts API
+
+All under `/api/v1/posts`, and all need an access token.
+
+| Endpoint | Who | Returns |
+|---|---|---|
+| `GET /` | any member | published posts, newest first, without their body, paginated; `?category=` keeps one category's (exact match). Only posts with a slug are listed, since posts are opened by slug |
+| `GET /{slug}` | any member | one published post with its `body` and `updated_at`; 404 `post_not_found` |
+
+Reads accept posts with missing fields (each field can be `null`), so a post made in the Studio never breaks the list. If Sanity is down: 502 `cms_unavailable`.
+
 ## Profile photos
 
 Profile photos are stored in **Cloudinary**: images up to 5 MB. We store the Cloudinary ID and URL, never a local file. When a photo is replaced, the old one is deleted in the background.

@@ -55,7 +55,7 @@ When a real scheduled feature arrives (e.g. birthday emails), a **scheduled GitH
 
 Only **blog posts** are cached, and only on the **backend**.
 
-- **What and where:** an in-memory cache (`cachetools.TTLCache`) in `posts/service.py`, limited in size.
+- **What and where:** an in-memory cache (`cachetools.TTLCache`) in `posts/service.py`, holding at most 256 results (one per page, category or post). "Not found" and errors aren't cached, so made-up slugs can't push real posts out.
 - **The key is the query, never the user:** every member sees the same posts. Login and role checks always happen **before** the cache is consulted.
 - **Cache misses read Sanity's live API,** not its CDN, so we don't stack two layers of staleness.
 - **When the cache is cleared:**
