@@ -1,6 +1,6 @@
 """Exceptions raised by this feature."""
 
-from app.core.exceptions import BadRequest, NotFound
+from app.core.exceptions import BadRequest, Conflict, NotFound
 
 
 class PostNotFound(NotFound):
@@ -19,3 +19,13 @@ class UnsupportedPostImage(BadRequest):
 
     code = "unsupported_image"
     default_message = "Upload a JPEG, PNG or WebP image."
+
+
+class SlugTaken(Conflict):
+    code = "slug_taken"
+    default_message = "Another post already uses this slug. Choose another one."
+
+
+class UnknownImage(BadRequest):
+    code = "unknown_image"
+    default_message = "That image doesn't exist. Upload it with POST /posts/images first."

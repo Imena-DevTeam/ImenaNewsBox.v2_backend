@@ -17,6 +17,7 @@ from app.core.sanity import Sanity, get_sanity
 from app.posts import service
 from app.posts.schemas import (
     AuthorRead,
+    PostCreate,
     PostImageUploaded,
     PostListParams,
     PostRead,
@@ -39,6 +40,15 @@ async def list_posts(
         sanity, offset=params.offset, limit=params.limit, category=params.category
     )
     return Page.build(items, params=params, total=total)
+
+
+@router.post("", status_code=HTTPStatus.CREATED)
+async def create_post(
+    body: PostCreate, writer: SocialMediaManagerUser, db: DbSession, sanity: SanityApi
+) -> PostRead:
+    """Social media managers and admins: publish a post, credited to you. Every field is
+    required except `slug` (made from the title) and `published_at` (now)."""
+    return await service.create_post(db, sanity, writer, body)
 
 
 @router.post("/images", status_code=HTTPStatus.CREATED)

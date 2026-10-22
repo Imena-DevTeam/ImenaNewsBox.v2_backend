@@ -7,6 +7,7 @@ runs a single instance.
 """
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any, Final
 
 from cachetools import TTLCache
@@ -15,8 +16,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.media import detect_image_format
 from app.core.sanity import Sanity
-from app.posts.exceptions import PostNotFound, UnknownAuthor, UnsupportedPostImage
-from app.posts.schemas import AuthorRead, PostImageUploaded, PostRead, PostSummary
+from app.posts.exceptions import (
+    PostNotFound,
+    SlugTaken,
+    UnknownAuthor,
+    UnknownImage,
+    UnsupportedPostImage,
+)
+from app.posts.schemas import (
+    AuthorRead,
+    PostAuthor,
+    PostCreate,
+    PostImage,
+    PostImageUploaded,
+    PostRead,
+    PostSummary,
+)
 from app.users import service as users_service
 from app.users.exceptions import NotAWriter
 from app.users.models import Role, User
@@ -163,3 +178,143 @@ async def upload_image(sanity: Sanity, data: bytes) -> PostImageUploaded:
         raise UnsupportedPostImage()
     asset = await sanity.upload_image(data, content_type=content_type)
     return PostImageUploaded(asset_id=asset["_id"], url=asset["url"])
+
+
+# --- Writing ---
+
+
+async def _write_context(
+    sanity: Sanity,
+    *,
+    post_id: str,
+    slug: str | None = None,
+    asset_id: str | None = None,
+    author_id: str | None = None,
+    with_post: bool = False,
+) -> dict[str, Any]:
+    """What a write needs to know, in one uncached query: whether the slug is free, the
+    image asset, the author, and (for edits) the post as it is now. Only the parts asked for
+    are queried, so no parameter is ever null."""
+    parts: list[str] = []
+    params: dict[str, Any] = {"id": post_id}
+    if with_post:
+        parts.append(
+            f'"post": *[_type == "post" && _id == $id][0]'
+            f'{{{_SUMMARY}, body, "updated_at": _updatedAt}}'
+        )
+    if slug is not None:
+        parts.append(
+            '"slug_taken": count(*[_type == "post" && slug.current == $slug && _id != $id]) > 0'
+        )
+        params["slug"] = slug
+    if asset_id is not None:
+        parts.append(
+            '"asset": *[_type == "sanity.imageAsset" && _id == $asset][0]'
+            '{url, "width": metadata.dimensions.width, "height": metadata.dimensions.height}'
+        )
+        params["asset"] = asset_id
+    if author_id is not None:
+        parts.append(
+            '"author": *[_type == "author" && _id == $author][0]'
+            '{"id": _id, name, "image_url": image.asset->url}'
+        )
+        params["author"] = author_id
+    result = await sanity.query("{" + ", ".join(parts) + "}", params)
+    return result if isinstance(result, dict) else {}
+
+
+def _check_slug_and_image(context: dict[str, Any], *, slug: bool, image: bool) -> None:
+    if slug and context.get("slug_taken"):
+        raise SlugTaken()
+    if image and not context.get("asset"):
+        raise UnknownImage()
+
+
+def _sanity_datetime(value: datetime) -> str:
+    """Sanity's datetime format, as the Studio writes it: UTC with milliseconds."""
+    utc = value.astimezone(UTC)
+    return utc.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc.microsecond // 1000:03d}Z"
+
+
+def _image_field(asset_id: str) -> dict[str, Any]:
+    return {"_type": "image", "asset": {"_type": "reference", "_ref": asset_id}}
+
+
+def _updated_at(result: dict[str, Any], post_id: str) -> datetime | None:
+    # The mutate API returns the saved documents; the fake doesn't.
+    for item in result.get("results") or []:
+        document = item.get("document") or {}
+        if document.get("_id") == post_id and document.get("_updatedAt"):
+            return datetime.fromisoformat(document["_updatedAt"])
+    return None
+
+
+def author_id_for(user: User) -> str:
+    """The Sanity author a writer's posts are credited to: theirs if linked, otherwise one
+    named after their user ID (created with their first post)."""
+    return user.sanity_author_id or f"author-{user.id}"
+
+
+async def create_post(db: AsyncSession, sanity: Sanity, writer: User, data: PostCreate) -> PostRead:
+    """Publish a post credited to its writer. Clears the posts cache.
+
+    One Sanity transaction makes sure the writer's author exists, gives it their current
+    display name and creates the post, so a failure leaves nothing half-written. A writer
+    who wasn't linked to an author is linked to the new one afterwards (`createIfNotExists`
+    makes a retry safe if that step fails). Raises `SlugTaken` or `UnknownImage`.
+    """
+    assert data.slug is not None  # PostCreate fills it in from the title
+    post_id = str(uuid.uuid4())
+    author_id = author_id_for(writer)
+    context = await _write_context(
+        sanity, post_id=post_id, slug=data.slug, asset_id=data.image_asset_id, author_id=author_id
+    )
+    _check_slug_and_image(context, slug=True, image=True)
+
+    published_at = data.published_at or datetime.now(UTC)
+    body = [block.model_dump(exclude_none=True) for block in data.body]
+    result = await sanity.mutate(
+        [
+            {
+                "createIfNotExists": {
+                    "_id": author_id,
+                    "_type": "author",
+                    "name": writer.display_name,
+                }
+            },
+            {"patch": {"id": author_id, "set": {"name": writer.display_name}}},
+            {
+                "create": {
+                    "_id": post_id,
+                    "_type": "post",
+                    "title": data.title,
+                    "slug": {"_type": "slug", "current": data.slug},
+                    "summary": data.summary,
+                    "categories": data.category,
+                    "publishedAt": _sanity_datetime(published_at),
+                    "author": {"_type": "reference", "_ref": author_id},
+                    "image": _image_field(data.image_asset_id),
+                    "body": body,
+                }
+            },
+        ]
+    )
+    clear_cache()
+    if writer.sanity_author_id is None:
+        await users_service.set_sanity_author(db, writer, author_id)
+
+    author = context.get("author") or {}
+    return PostRead(
+        id=post_id,
+        title=data.title,
+        slug=data.slug,
+        summary=data.summary,
+        category=data.category,
+        published_at=published_at,
+        image=PostImage.model_validate(context["asset"]),
+        author=PostAuthor(
+            id=author_id, name=writer.display_name, image_url=author.get("image_url")
+        ),
+        body=body,
+        updated_at=_updated_at(result, post_id),
+    )
