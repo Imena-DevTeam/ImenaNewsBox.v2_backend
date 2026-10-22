@@ -7,15 +7,32 @@ runs a single instance.
 """
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any, Final
 
 from cachetools import TTLCache
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.media import detect_image_format
 from app.core.sanity import Sanity
-from app.posts.exceptions import PostNotFound, UnknownAuthor
-from app.posts.schemas import AuthorRead, PostRead, PostSummary
+from app.posts.exceptions import (
+    PostNotFound,
+    SlugTaken,
+    UnknownAuthor,
+    UnknownImage,
+    UnsupportedPostImage,
+)
+from app.posts.schemas import (
+    AuthorRead,
+    PostAuthor,
+    PostCreate,
+    PostImage,
+    PostImageUploaded,
+    PostRead,
+    PostSummary,
+    PostUpdate,
+)
 from app.users import service as users_service
 from app.users.exceptions import NotAWriter
 from app.users.models import Role, User
@@ -144,3 +161,222 @@ async def link_author(
         if not found:
             raise UnknownAuthor()
     return await users_service.set_sanity_author(db, user, author_id)
+
+
+# --- Images ---
+
+_POST_IMAGE_TYPES: Final = {"jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+
+async def upload_image(sanity: Sanity, data: bytes) -> PostImageUploaded:
+    """Store an image (already checked by `read_image`) in Sanity for a post to use.
+
+    Nothing is cached or changed until a post uses it. An image no post ever uses stays in
+    Sanity unused, like a lost Cloudinary delete.
+    """
+    content_type = _POST_IMAGE_TYPES.get(detect_image_format(data) or "")
+    if content_type is None:
+        raise UnsupportedPostImage()
+    asset = await sanity.upload_image(data, content_type=content_type)
+    return PostImageUploaded(asset_id=asset["_id"], url=asset["url"])
+
+
+# --- Writing ---
+
+
+async def _write_context(
+    sanity: Sanity,
+    *,
+    post_id: str,
+    slug: str | None = None,
+    asset_id: str | None = None,
+    author_id: str | None = None,
+    with_post: bool = False,
+) -> dict[str, Any]:
+    """What a write needs to know, in one uncached query: whether the slug is free, the
+    image asset, the author, and (for edits) the post as it is now. Only the parts asked for
+    are queried, so no parameter is ever null."""
+    parts: list[str] = []
+    params: dict[str, Any] = {"id": post_id}
+    if with_post:
+        parts.append(
+            f'"post": *[_type == "post" && _id == $id][0]'
+            f'{{{_SUMMARY}, body, "updated_at": _updatedAt}}'
+        )
+    if slug is not None:
+        parts.append(
+            '"slug_taken": count(*[_type == "post" && slug.current == $slug && _id != $id]) > 0'
+        )
+        params["slug"] = slug
+    if asset_id is not None:
+        parts.append(
+            '"asset": *[_type == "sanity.imageAsset" && _id == $asset][0]'
+            '{url, "width": metadata.dimensions.width, "height": metadata.dimensions.height}'
+        )
+        params["asset"] = asset_id
+    if author_id is not None:
+        parts.append(
+            '"author": *[_type == "author" && _id == $author][0]'
+            '{"id": _id, name, "image_url": image.asset->url}'
+        )
+        params["author"] = author_id
+    result = await sanity.query("{" + ", ".join(parts) + "}", params)
+    return result if isinstance(result, dict) else {}
+
+
+def _check_slug_and_image(context: dict[str, Any], *, slug: bool, image: bool) -> None:
+    if slug and context.get("slug_taken"):
+        raise SlugTaken()
+    if image and not context.get("asset"):
+        raise UnknownImage()
+
+
+def _sanity_datetime(value: datetime) -> str:
+    """Sanity's datetime format, as the Studio writes it: UTC with milliseconds."""
+    utc = value.astimezone(UTC)
+    return utc.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc.microsecond // 1000:03d}Z"
+
+
+def _image_field(asset_id: str) -> dict[str, Any]:
+    return {"_type": "image", "asset": {"_type": "reference", "_ref": asset_id}}
+
+
+def _updated_at(result: dict[str, Any], post_id: str) -> datetime | None:
+    # The mutate API returns the saved documents; the fake doesn't.
+    for item in result.get("results") or []:
+        document = item.get("document") or {}
+        if document.get("_id") == post_id and document.get("_updatedAt"):
+            return datetime.fromisoformat(document["_updatedAt"])
+    return None
+
+
+def author_id_for(user: User) -> str:
+    """The Sanity author a writer's posts are credited to: theirs if linked, otherwise one
+    named after their user ID (created with their first post)."""
+    return user.sanity_author_id or f"author-{user.id}"
+
+
+async def create_post(db: AsyncSession, sanity: Sanity, writer: User, data: PostCreate) -> PostRead:
+    """Publish a post credited to its writer. Clears the posts cache.
+
+    One Sanity transaction makes sure the writer's author exists, gives it their current
+    display name and creates the post, so a failure leaves nothing half-written. A writer
+    who wasn't linked to an author is linked to the new one afterwards (`createIfNotExists`
+    makes a retry safe if that step fails). Raises `SlugTaken` or `UnknownImage`.
+    """
+    assert data.slug is not None  # PostCreate fills it in from the title
+    post_id = str(uuid.uuid4())
+    author_id = author_id_for(writer)
+    context = await _write_context(
+        sanity, post_id=post_id, slug=data.slug, asset_id=data.image_asset_id, author_id=author_id
+    )
+    _check_slug_and_image(context, slug=True, image=True)
+
+    published_at = data.published_at or datetime.now(UTC)
+    body = [block.model_dump(exclude_none=True) for block in data.body]
+    result = await sanity.mutate(
+        [
+            {
+                "createIfNotExists": {
+                    "_id": author_id,
+                    "_type": "author",
+                    "name": writer.display_name,
+                }
+            },
+            {"patch": {"id": author_id, "set": {"name": writer.display_name}}},
+            {
+                "create": {
+                    "_id": post_id,
+                    "_type": "post",
+                    "title": data.title,
+                    "slug": {"_type": "slug", "current": data.slug},
+                    "summary": data.summary,
+                    "categories": data.category,
+                    "publishedAt": _sanity_datetime(published_at),
+                    "author": {"_type": "reference", "_ref": author_id},
+                    "image": _image_field(data.image_asset_id),
+                    "body": body,
+                }
+            },
+        ]
+    )
+    clear_cache()
+    if writer.sanity_author_id is None:
+        await users_service.set_sanity_author(db, writer, author_id)
+
+    author = context.get("author") or {}
+    return PostRead(
+        id=post_id,
+        title=data.title,
+        slug=data.slug,
+        summary=data.summary,
+        category=data.category,
+        published_at=published_at,
+        image=PostImage.model_validate(context["asset"]),
+        author=PostAuthor(
+            id=author_id, name=writer.display_name, image_url=author.get("image_url")
+        ),
+        body=body,
+        updated_at=_updated_at(result, post_id),
+    )
+
+
+async def update_post(sanity: Sanity, post_id: str, changes: PostUpdate) -> PostRead:
+    """Change a post's fields (any writer's post). The author stays the original writer.
+    Clears the posts cache. Raises `PostNotFound`, `SlugTaken` or `UnknownImage`.
+
+    Changes go to the published post. If someone also has an unpublished draft of it open
+    in the Studio, publishing that draft there would overwrite these changes.
+    """
+    sent = changes.model_fields_set
+    context = await _write_context(
+        sanity,
+        post_id=post_id,
+        slug=changes.slug if "slug" in sent else None,
+        asset_id=changes.image_asset_id if "image_asset_id" in sent else None,
+        with_post=True,
+    )
+    if not context.get("post"):
+        raise PostNotFound()
+    _check_slug_and_image(context, slug="slug" in sent, image="image_asset_id" in sent)
+    current = PostRead.model_validate(context["post"])
+
+    sanity_fields: dict[str, Any] = {}
+    read_fields: dict[str, Any] = {}
+    if changes.title is not None:
+        sanity_fields["title"] = read_fields["title"] = changes.title
+    if changes.slug is not None:
+        sanity_fields["slug"] = {"_type": "slug", "current": changes.slug}
+        read_fields["slug"] = changes.slug
+    if changes.summary is not None:
+        sanity_fields["summary"] = read_fields["summary"] = changes.summary
+    if changes.category is not None:
+        sanity_fields["categories"] = read_fields["category"] = changes.category
+    if changes.published_at is not None:
+        sanity_fields["publishedAt"] = _sanity_datetime(changes.published_at)
+        read_fields["published_at"] = changes.published_at
+    if changes.image_asset_id is not None:
+        sanity_fields["image"] = _image_field(changes.image_asset_id)
+        read_fields["image"] = PostImage.model_validate(context["asset"])
+    if changes.body is not None:
+        body = [block.model_dump(exclude_none=True) for block in changes.body]
+        sanity_fields["body"] = read_fields["body"] = body
+    if not sanity_fields:
+        return current
+
+    result = await sanity.mutate([{"patch": {"id": post_id, "set": sanity_fields}}])
+    clear_cache()
+    read_fields["updated_at"] = _updated_at(result, post_id) or current.updated_at
+    return current.model_copy(update=read_fields)
+
+
+async def delete_post(sanity: Sanity, post_id: str) -> None:
+    """Delete a published post (any writer's). Clears the posts cache. Raises `PostNotFound`.
+
+    Its image stays in Sanity unused. An unpublished Studio draft of it, if one exists, stays
+    a draft (our tokens only see published posts), and publishing it would bring it back.
+    """
+    if not await sanity.query('count(*[_type == "post" && _id == $id])', {"id": post_id}):
+        raise PostNotFound()
+    await sanity.mutate([{"delete": {"id": post_id}}])
+    clear_cache()

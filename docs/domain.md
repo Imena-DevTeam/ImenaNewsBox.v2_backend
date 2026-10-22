@@ -161,8 +161,17 @@ All under `/api/v1/posts`, and all need an access token.
 | Endpoint | Who | Returns |
 |---|---|---|
 | `GET /` | any member | published posts, newest first, without their body, paginated; `?category=` keeps one category's (exact match). Only posts with a slug are listed, since posts are opened by slug |
+| `POST /` | social media managers and admins | publishes a post credited to you (201, `PostRead`): `{title, slug?, summary, category, published_at?, image_asset_id, body}`. Every field is required except `slug` (made from the title, e.g. "Café 2026!" → `cafe-2026`) and `published_at` (now). Errors: 409 `slug_taken`, 400 `unknown_image` |
+| `POST /images` | social media managers and admins | uploads a post image to Sanity (multipart field `image`: JPEG, PNG or WebP, at most 5 MB, checked by its content). 201 `{asset_id, url}`; send `asset_id` with the post. HEIC isn't accepted here (unlike profile photos): Sanity keeps post images as they are, and most browsers can't show HEIC. An image no post uses stays in Sanity unused |
 | `GET /authors` | admins | every published Sanity author by name, `[{id, name, image_url, user_id}]`, where `user_id` is the member it's linked to (or `null`). For linking authors; not cached |
 | `GET /{slug}` | any member | one published post with its `body` and `updated_at`; 404 `post_not_found` |
+| `PATCH /{id}` | social media managers and admins | changes **any** post's fields (by its Sanity ID, which never changes; a slug can). Send only what changes; nothing can be cleared. The author stays the original writer. Returns `PostRead`. Errors: 404 `post_not_found`, 409 `slug_taken`, 400 `unknown_image` |
+| `DELETE /{id}` | social media managers and admins | deletes any post (204). Its image stays in Sanity unused |
+| `POST /webhook` | Sanity only, **no login** | clears the posts cache when a post or author changes in the Studio (204). Checked by its `sanity-webhook-signature` instead of a token; 401 `invalid_signature` otherwise. The body is never used. Setup: [Infrastructure → Setting up Sanity](infrastructure.md#setting-up-sanity) |
+
+Any social media manager can edit or delete any post, not only their own: it's one small team running one blog (decision 64's link only decides who a *new* post is credited to).
+
+**Studio drafts:** our tokens only see published posts. If someone also has an unpublished draft of a post open in the Studio, publishing that draft there overwrites edits made through the app, and a deleted post comes back. Editing in the app or in the Studio, not both, avoids this.
 
 **Authors.** Posts are credited to Sanity `author` documents, and each member can be linked to one author through `users.sanity_author_id`:
 - A post written through our app is credited to its writer's author. If the writer isn't linked yet, the backend creates an author for them on their first post.
@@ -171,6 +180,14 @@ All under `/api/v1/posts`, and all need an access token.
 - An author can belong to only one member (409 `author_already_linked`), and must be a published author in Sanity (400 `unknown_author`). `{"author_id": null}` unlinks.
 
 Reads accept posts with missing fields (each field can be `null`), so a post made in the Studio never breaks the list. If Sanity is down: 502 `cms_unavailable`.
+
+**Rules for posts written through our API** (the Studio checks none of this, so our API is where the rules live):
+- **Every field is required.** Limits: title 200 characters, summary 500, category 100, slug 200 (lowercase words joined by dashes).
+- **Slugs are unique.** The check runs just before saving; two writers saving the same slug at the same moment could both get through, which is unlikely enough on a family blog to accept.
+- **The body only accepts what the Studio's editor makes:** blocks with the Normal, Heading 1–6 or Quote styles; bold (`strong`), italic (`em`), `code`, `underline` and `strike-through`; bullet and numbered lists; and links. Anything else (an unknown style, an image inside the text, an unknown field) is a 422, so the frontend can render every post it gets. Missing `_key`s are filled in.
+- **Links must be `http://`, `https://` or `mailto:`.** A `javascript:` link would run code in a reader's browser when clicked.
+- **The author is always the writer** and can't be sent. On every new post, the writer's Sanity author takes their current display name.
+- **One transaction:** the writer's author (created if needed) and the post are saved to Sanity together, so a failure leaves nothing half-written.
 
 ## Profile photos
 

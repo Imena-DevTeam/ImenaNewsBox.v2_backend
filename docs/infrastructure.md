@@ -109,3 +109,24 @@ Every user is created by an admin, so the very first admin comes from a command 
 4. **Log in:** the admin logs in with family name + password, then the emailed code (or Google). Remove `FIRST_ADMIN_PASSWORD` from your `.env` afterwards; the database only keeps its hash.
 
 Running it again is safe: it never resets the password or changes another user. Try it on a Neon branch first, like the v1 import.
+
+## Setting up Sanity
+
+The backend needs four values from Sanity, set as environment variables on Render (never in the repo):
+
+| Variable | Where to find it |
+|---|---|
+| `SANITY_PROJECT_ID`, `SANITY_DATASET` | sanity.io/manage → the project (its ID is at the top) → **Datasets** (usually `production`). Not secret |
+| `SANITY_API_READ_TOKEN` | **API → Tokens → Add API token**, permission **Viewer**. Used for member reads |
+| `SANITY_API_WRITE_TOKEN` | the same page, permission **Editor**. Used for post writes and image uploads |
+| `SANITY_WEBHOOK_SECRET` | a long random string you choose, entered in the webhook below |
+
+**The webhook** clears the posts cache when someone changes a post in the Studio, so members see it at once instead of within 10 minutes. In sanity.io/manage → **API → Webhooks → Create webhook**:
+- **URL:** `https://<the Render service>/api/v1/posts/webhook`
+- **Dataset:** the one above. **Trigger on:** create, update and delete.
+- **Filter:** `_type == "post" || _type == "author"`
+- **Projection:** `{_id}`. The backend never reads the body (it only checks the signature), so sending just the ID keeps each call tiny. Bodies over 1 MB are refused.
+- **HTTP method:** POST. Leave drafts out (the default), since members only see published posts.
+- **Secret:** the same value as `SANITY_WEBHOOK_SECRET`.
+
+Each call is signed with that secret. Calls without a valid signature, or signed more than 5 minutes earlier, get a 401 and change nothing. While `SANITY_WEBHOOK_SECRET` is empty, the webhook answers 503 and the cache simply expires after 10 minutes.
