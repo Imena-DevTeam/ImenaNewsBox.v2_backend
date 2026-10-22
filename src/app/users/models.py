@@ -5,7 +5,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Final
 
-from sqlalchemy import Enum, ForeignKey, Index, String, func
+from sqlalchemy import CheckConstraint, Enum, ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database.base import Base, TimestampMixin
@@ -59,6 +59,13 @@ class Promotion(Base):
 
 class User(TimestampMixin, Base):
     __tablename__ = "users"
+    __table_args__ = (
+        # Only people who can write posts are credited as authors (see `posts`).
+        CheckConstraint(
+            "sanity_author_id IS NULL OR role IN ('social_media_manager', 'admin')",
+            name="sanity_author_role",
+        ),
+    )
 
     # UUIDv7: time-ordered, so new rows land at the end of the primary key index.
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid7)
@@ -90,7 +97,8 @@ class User(TimestampMixin, Base):
     photo_public_id: Mapped[str | None] = mapped_column(String(255))
     photo_url: Mapped[str | None] = mapped_column(String(1024))
 
-    # The Sanity `author` document their blog posts are credited to. One author per user.
+    # The Sanity `author` document their blog posts are credited to. One author per user,
+    # and only for social media managers and admins (the check constraint above).
     sanity_author_id: Mapped[str | None] = mapped_column(String(SANITY_ID_MAX_LENGTH), unique=True)
 
     deactivated_at: Mapped[datetime | None]

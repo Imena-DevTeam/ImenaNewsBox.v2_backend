@@ -193,10 +193,21 @@ async def test_repr_holds_no_personal_data(make_user: MakeUser) -> None:
 async def test_two_users_cannot_share_a_sanity_author(
     db_session: AsyncSession, make_user: MakeUser
 ) -> None:
-    await make_user(sanity_author_id="author-1")
+    await make_user(role=Role.SOCIAL_MEDIA_MANAGER, sanity_author_id="author-1")
     # Users without one don't clash.
     await make_user()
     await make_user()
 
     with pytest.raises(IntegrityError, match="uq_users_sanity_author_id"):
-        await make_user(sanity_author_id="author-1")
+        await make_user(role=Role.SOCIAL_MEDIA_MANAGER, sanity_author_id="author-1")
+
+
+async def test_plain_members_cannot_have_a_sanity_author(
+    db_session: AsyncSession, make_user: MakeUser
+) -> None:
+    # Post writers can.
+    await make_user(role=Role.SOCIAL_MEDIA_MANAGER, sanity_author_id="author-2")
+    await make_user(role=Role.ADMIN, sanity_author_id="author-3")
+
+    with pytest.raises(IntegrityError, match="ck_users_sanity_author_role"):
+        await make_user(role=Role.MEMBER, sanity_author_id="author-4")

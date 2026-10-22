@@ -17,7 +17,8 @@ from app.core.sanity import Sanity
 from app.posts.exceptions import PostNotFound, UnknownAuthor
 from app.posts.schemas import AuthorRead, PostRead, PostSummary
 from app.users import service as users_service
-from app.users.models import User
+from app.users.exceptions import NotAWriter
+from app.users.models import Role, User
 
 CACHE_TTL_SECONDS: Final = 600
 CACHE_MAX_ENTRIES: Final = 256
@@ -132,10 +133,13 @@ async def link_author(
 ) -> User:
     """Credit a user's posts to an existing, published Sanity author (None unlinks). Commits.
 
-    Raises `UserNotFound`, `UnknownAuthor` or `AuthorAlreadyLinked`.
+    Only social media managers and admins can be linked. Raises `UserNotFound`,
+    `NotAWriter`, `UnknownAuthor` or `AuthorAlreadyLinked`.
     """
     user = await users_service.get_user(db, user_id, include_deactivated=True)
     if author_id is not None:
+        if not user.role.at_least(Role.SOCIAL_MEDIA_MANAGER):
+            raise NotAWriter()
         found = await sanity.query('count(*[_type == "author" && _id == $id])', {"id": author_id})
         if not found:
             raise UnknownAuthor()

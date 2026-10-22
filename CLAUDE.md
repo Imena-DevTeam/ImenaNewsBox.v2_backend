@@ -111,7 +111,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - Post image uploads go through our API to Sanity's assets endpoint.
   - The Sanity webhook (verified with `SANITY_WEBHOOK_SECRET`) is a backup for cache invalidation.
   - The post schema already exists in Sanity; its fields are listed in `docs/domain.md` (Blog posts). Don't invent others. Studio requires no fields, but **writes through our API require every field**, and reads accept missing ones.
-  - **Authors:** each user can be linked to one Sanity `author` (`users.sanity_author_id`, unique). A post written through our API is credited to its writer's author, created on their first post if needed. Admins link people who already have an author with `PUT /users/{id}/sanity-author`.
+  - **Authors:** each social media manager or admin can be linked to one Sanity `author` (`users.sanity_author_id`, unique; a check constraint keeps plain members without one, and demotion to member unlinks it). A post written through our API is credited to its writer's author, created on their first post if needed. Admins link people who already have an author with `PUT /users/{id}/sanity-author`.
 - **Cloudinary is for profile photos only:** images up to 5 MB. Store the public ID and URL, never local files. Delete the old asset when a photo is replaced.
 - **Background work is minimal:**
   - **Code emails are sent during the request,** with a short timeout and one retry. On failure the user gets a clear error and can resend.

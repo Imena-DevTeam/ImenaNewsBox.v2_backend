@@ -56,7 +56,7 @@ async def test_admins_list_authors_with_who_they_are_linked_to(
     admin_headers: dict[str, str],
 ) -> None:
     fake_sanity.query_handler = _authors(AMATA, GANZA)
-    amata = await make_user(sanity_author_id=AMATA["id"])
+    amata = await make_user(role=Role.SOCIAL_MEDIA_MANAGER, sanity_author_id=AMATA["id"])
 
     response = await client.get(AUTHORS, headers=admin_headers)
 
@@ -118,7 +118,7 @@ async def test_null_unlinks_without_asking_sanity(
     make_user: MakeUser,
     admin_headers: dict[str, str],
 ) -> None:
-    user = await make_user(sanity_author_id=AMATA["id"])
+    user = await make_user(role=Role.SOCIAL_MEDIA_MANAGER, sanity_author_id=AMATA["id"])
 
     response = await client.put(_link_url(user), json={"author_id": None}, headers=admin_headers)
 
@@ -135,7 +135,7 @@ async def test_an_unknown_author_is_refused(
     admin_headers: dict[str, str],
 ) -> None:
     fake_sanity.query_handler = _authors(AMATA)
-    user = await make_user()
+    user = await make_user(role=Role.SOCIAL_MEDIA_MANAGER)
 
     response = await client.put(
         _link_url(user), json={"author_id": GANZA["id"]}, headers=admin_headers
@@ -154,8 +154,8 @@ async def test_an_author_links_to_one_user_only(
     admin_headers: dict[str, str],
 ) -> None:
     fake_sanity.query_handler = _authors(AMATA)
-    await make_user(sanity_author_id=AMATA["id"])
-    other = await make_user()
+    await make_user(role=Role.SOCIAL_MEDIA_MANAGER, sanity_author_id=AMATA["id"])
+    other = await make_user(role=Role.SOCIAL_MEDIA_MANAGER)
     other_id = other.id
 
     response = await client.put(
@@ -171,7 +171,7 @@ async def test_linking_the_same_author_again_changes_nothing(
     client: AsyncClient, fake_sanity: FakeSanity, make_user: MakeUser, admin_headers: dict[str, str]
 ) -> None:
     fake_sanity.query_handler = _authors(AMATA)
-    user = await make_user(sanity_author_id=AMATA["id"])
+    user = await make_user(role=Role.SOCIAL_MEDIA_MANAGER, sanity_author_id=AMATA["id"])
 
     response = await client.put(
         _link_url(user), json={"author_id": AMATA["id"]}, headers=admin_headers
@@ -184,7 +184,7 @@ async def test_deactivated_users_can_be_linked(
     client: AsyncClient, fake_sanity: FakeSanity, make_user: MakeUser, admin_headers: dict[str, str]
 ) -> None:
     fake_sanity.query_handler = _authors(AMATA)
-    gone = await make_user(deactivated_at=datetime.now(UTC))
+    gone = await make_user(role=Role.SOCIAL_MEDIA_MANAGER, deactivated_at=datetime.now(UTC))
 
     response = await client.put(
         _link_url(gone), json={"author_id": AMATA["id"]}, headers=admin_headers
@@ -262,7 +262,7 @@ async def test_sanity_down_links_nothing(
     admin_headers: dict[str, str],
 ) -> None:
     fake_sanity.unavailable = True
-    user = await make_user()
+    user = await make_user(role=Role.SOCIAL_MEDIA_MANAGER)
 
     response = await client.put(
         _link_url(user), json={"author_id": AMATA["id"]}, headers=admin_headers
@@ -277,3 +277,76 @@ async def test_authors_need_a_login(client: AsyncClient, make_user: MakeUser) ->
 
     assert (await client.get(AUTHORS)).status_code == 401
     assert (await client.put(_link_url(user), json={"author_id": None})).status_code == 401
+
+
+# --- Only post writers have an author ---
+
+
+async def test_admins_can_be_linked_too(
+    client: AsyncClient, fake_sanity: FakeSanity, make_user: MakeUser, admin_headers: dict[str, str]
+) -> None:
+    fake_sanity.query_handler = _authors(AMATA)
+    other_admin = await make_user(role=Role.ADMIN)
+
+    response = await client.put(
+        _link_url(other_admin), json={"author_id": AMATA["id"]}, headers=admin_headers
+    )
+
+    assert response.status_code == 200
+
+
+async def test_plain_members_cannot_be_linked(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    fake_sanity: FakeSanity,
+    make_user: MakeUser,
+    admin_headers: dict[str, str],
+) -> None:
+    fake_sanity.query_handler = _authors(AMATA)
+    member = await make_user(role=Role.MEMBER)
+
+    response = await client.put(
+        _link_url(member), json={"author_id": AMATA["id"]}, headers=admin_headers
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "not_a_writer"
+    assert await _stored_author(db_session, member.id) is None
+    # Refused before asking Sanity.
+    assert fake_sanity.queries == []
+
+
+async def test_demoting_to_member_unlinks_the_author(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    make_user: MakeUser,
+    admin_headers: dict[str, str],
+) -> None:
+    writer = await make_user(role=Role.SOCIAL_MEDIA_MANAGER, sanity_author_id=AMATA["id"])
+
+    response = await client.patch(
+        f"/api/v1/users/{writer.id}", json={"role": "member"}, headers=admin_headers
+    )
+
+    assert response.status_code == 200
+    assert response.json()["sanity_author_id"] is None
+    assert await _stored_author(db_session, writer.id) is None
+
+
+@pytest.mark.parametrize(
+    ("start", "end"), [(Role.SOCIAL_MEDIA_MANAGER, "admin"), (Role.ADMIN, "social_media_manager")]
+)
+async def test_writers_keep_their_author_between_writer_roles(
+    client: AsyncClient,
+    make_user: MakeUser,
+    admin_headers: dict[str, str],
+    start: Role,
+    end: str,
+) -> None:
+    writer = await make_user(role=start, sanity_author_id=AMATA["id"])
+
+    response = await client.patch(
+        f"/api/v1/users/{writer.id}", json={"role": end}, headers=admin_headers
+    )
+
+    assert response.json()["sanity_author_id"] == AMATA["id"]

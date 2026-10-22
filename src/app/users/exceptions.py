@@ -55,3 +55,8 @@ class EmailAlreadyVerified(Conflict):
 class AuthorAlreadyLinked(Conflict):
     code = "author_already_linked"
     default_message = "That Sanity author is already linked to another member."
+
+
+class NotAWriter(Conflict):
+    code = "not_a_writer"
+    default_message = "Only social media managers and admins write posts. Change their role first."
