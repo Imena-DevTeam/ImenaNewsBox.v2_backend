@@ -25,12 +25,14 @@ from app.core.email import CodePurpose, EmailNotConfigured, EmailNotSent, EmailS
 from app.core.media import MediaStore
 from app.core.security import hash_password
 from app.users.exceptions import (
+    AuthorAlreadyLinked,
     CannotChangeOwnRole,
     CannotDeactivateSelf,
     EmailAlreadyVerified,
     EmailTaken,
     FamilyNameTaken,
     NotAnAdmin,
+    NotAWriter,
     UnknownPromotion,
     UnknownSubFamily,
     UserNotFound,
@@ -106,6 +108,7 @@ async def list_promotions(db: AsyncSession) -> list[Promotion]:
 _UNIQUE_ERRORS: Final = {
     "uq_users_family_name_lower": FamilyNameTaken,
     "uq_users_email_lower": EmailTaken,
+    "uq_users_sanity_author_id": AuthorAlreadyLinked,
 }
 
 
@@ -159,6 +162,8 @@ async def update_user(
     - A new email (not just different capitals) clears `email_verified_at` and sends
       a code to the new address (see `send_email_confirmation`).
     - Demoting an admin removes their password: only admins have one.
+    - Demoting someone to a plain member unlinks their Sanity author: only post
+      writers have one. Their old posts keep their author.
     - Admins can't change their own role, so the last admin can't lock everyone out.
     """
     user = await get_user(db, user_id, include_deactivated=True)
@@ -170,6 +175,8 @@ async def update_user(
             raise CannotChangeOwnRole()
         if not new_role.at_least(Role.ADMIN):
             fields["password_hash"] = None
+        if not new_role.at_least(Role.SOCIAL_MEDIA_MANAGER):
+            fields["sanity_author_id"] = None
     new_email = fields.get("email")
     email_changed = new_email is not None and new_email.lower() != user.email.lower()
     if email_changed:
@@ -302,6 +309,21 @@ async def set_admin_password(db: AsyncSession, user_id: uuid.UUID, password: str
         raise NotAnAdmin()
     user.password_hash = await hash_password(password)
     await db.commit()
+
+
+async def set_sanity_author(db: AsyncSession, user: User, author_id: str | None) -> User:
+    """Credit the user's blog posts to this Sanity author (None unlinks). Commits.
+
+    Doesn't check that the author exists: `posts.service.link_author` does, before calling
+    this. Raises `NotAWriter` for plain members and `AuthorAlreadyLinked` if another
+    user has it.
+    """
+    if author_id is not None and not user.role.at_least(Role.SOCIAL_MEDIA_MANAGER):
+        raise NotAWriter()
+    async with _unique_fields(db):
+        user.sanity_author_id = author_id
+    await db.commit()
+    return await get_user(db, user.id, include_deactivated=True)
 
 
 # --- First admin ---

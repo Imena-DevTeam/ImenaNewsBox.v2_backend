@@ -80,15 +80,17 @@ All under `/api/v1/users`, and all need an access token.
 | `POST /{id}/reactivate` | admins | lets them log in again. Old sessions stay revoked, so each device logs in from scratch |
 | `PUT /{id}/photo` | the user themselves, or an admin | uploads a profile photo (multipart field `photo`; JPEG, PNG, WebP or HEIC, at most 5 MB, checked by its content, not its name). Returns `UserRead`. Errors: 400 `unsupported_image`, 413 `image_too_large`, 502 `media_unavailable` |
 | `DELETE /{id}/photo` | the user themselves, or an admin | removes the photo. Returns `UserRead` |
+| `PUT /{id}/sanity-author` | admins | `{author_id}`: credits the user's blog posts to an existing Sanity author, or unlinks with `null` (see Blog posts → Authors). Returns `UserRead`. Errors: 400 `unknown_author`, 409 `not_a_writer` (plain members) or `author_already_linked` |
 | `PUT /{id}/password` | admins | sets an admin's password, their own included (`{password}`, 12 to 256 characters; 204). For an admin who has none yet or forgot it; 409 `not_an_admin` for anyone else. Their sessions aren't touched |
 
 `UserPublicRead` is `{id, family_name, display_name, photo_url, sub_family: {id, name}, promotion: {id, name} | null, birthday: {month, day} | null}`. The year of birth is dropped inside the schema itself, so no route can send it to other members by mistake.
 
-`UserRead` adds the private fields: the full `birthday` date, `email`, `email_verified_at`, `role`, `has_password` (admins can't log in until it's true), `deactivated_at` and `created_at`. The password hash is never in any response.
+`UserRead` adds the private fields: the full `birthday` date, `email`, `email_verified_at`, `role`, `has_password` (admins can't log in until it's true), `sanity_author_id` (the Sanity author their blog posts are credited to; see Blog posts), `deactivated_at` and `created_at`. The password hash is never in any response.
 
 **Rules when an admin changes a user:**
 - **A new email** (not just different capitals) clears `email_verified_at` and emails a confirmation code to the new address. If that email can't be sent, the admin's change is still saved; the member asks for another code with `POST /me/email/resend`.
 - **Demoting an admin** removes their password, since only admins have one. **Promoting** someone to admin doesn't give them one: set it before they log in.
+- **Demoting someone to a plain member** unlinks their Sanity author, since only post writers have one. Their old posts keep their author; if they're promoted again, an admin links them again.
 - **Admins can't change their own role** (409 `cannot_change_own_role`), so the last admin can't demote themselves and leave nobody to manage users. They can change their other fields.
 
 **Errors when creating or changing a user:**
@@ -137,6 +139,38 @@ All under `/api/v1/wishes`, and all need an access token.
 - Members read posts. Social media managers (and admins) create, edit and delete them, **through our frontend**, not in Sanity Studio.
 - Image uploads for posts also go through our API to Sanity.
 - Reads are cached on the backend (see [Infrastructure → Caching](infrastructure.md#caching)).
+
+**The post fields in Sanity** (from the existing documents; the Studio requires none of them):
+
+| Sanity field | Our API | What it is |
+|---|---|---|
+| `title`, `summary` | `title`, `summary` | text |
+| `slug.current` | `slug` | the post's URL name, e.g. `visit-to-ikuzwe` |
+| `categories` | `category` | **one** free-text category, despite the plural name |
+| `publishedAt` | `published_at` | date and time |
+| `image` | `image: {url, width, height, hotspot, crop}` | the main image, stored in Sanity, with its cropping data |
+| `author` | `author: {id, name, image_url}` | a reference to an `author` document (`name`, `image`) |
+| `body` | `body` | Portable Text: Normal, Heading 1–6 and Quote blocks; bold, italic, code, underline, strikethrough; bullet and numbered lists; links. No images inside the body |
+
+Sanity serves image files from its CDN to anyone who has the URL, even though the dataset itself is private. That's the same as Cloudinary profile photos: the URLs are long and unguessable, but not secret.
+
+### Posts API
+
+All under `/api/v1/posts`, and all need an access token.
+
+| Endpoint | Who | Returns |
+|---|---|---|
+| `GET /` | any member | published posts, newest first, without their body, paginated; `?category=` keeps one category's (exact match). Only posts with a slug are listed, since posts are opened by slug |
+| `GET /authors` | admins | every published Sanity author by name, `[{id, name, image_url, user_id}]`, where `user_id` is the member it's linked to (or `null`). For linking authors; not cached |
+| `GET /{slug}` | any member | one published post with its `body` and `updated_at`; 404 `post_not_found` |
+
+**Authors.** Posts are credited to Sanity `author` documents, and each member can be linked to one author through `users.sanity_author_id`:
+- A post written through our app is credited to its writer's author. If the writer isn't linked yet, the backend creates an author for them on their first post.
+- Members who wrote posts in the Studio already have an author. An admin links them once with `PUT /api/v1/users/{id}/sanity-author` `{author_id}` (see the Users API), so their old and new posts share one author instead of two with the same name.
+- Only **social media managers and admins** (the people who write posts) can have an author (409 `not_a_writer`); the database enforces it with a check constraint.
+- An author can belong to only one member (409 `author_already_linked`), and must be a published author in Sanity (400 `unknown_author`). `{"author_id": null}` unlinks.
+
+Reads accept posts with missing fields (each field can be `null`), so a post made in the Studio never breaks the list. If Sanity is down: 502 `cms_unavailable`.
 
 ## Profile photos
 
