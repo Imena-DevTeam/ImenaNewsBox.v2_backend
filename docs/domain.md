@@ -84,7 +84,7 @@ All under `/api/v1/users`, and all need an access token.
 
 `UserPublicRead` is `{id, family_name, display_name, photo_url, sub_family: {id, name}, promotion: {id, name} | null, birthday: {month, day} | null}`. The year of birth is dropped inside the schema itself, so no route can send it to other members by mistake.
 
-`UserRead` adds the private fields: the full `birthday` date, `email`, `email_verified_at`, `role`, `has_password` (admins can't log in until it's true), `deactivated_at` and `created_at`. The password hash is never in any response.
+`UserRead` adds the private fields: the full `birthday` date, `email`, `email_verified_at`, `role`, `has_password` (admins can't log in until it's true), `sanity_author_id` (the Sanity author their blog posts are credited to; see Blog posts), `deactivated_at` and `created_at`. The password hash is never in any response.
 
 **Rules when an admin changes a user:**
 - **A new email** (not just different capitals) clears `email_verified_at` and emails a confirmation code to the new address. If that email can't be sent, the admin's change is still saved; the member asks for another code with `POST /me/email/resend`.

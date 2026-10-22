@@ -185,3 +185,18 @@ async def test_repr_holds_no_personal_data(make_user: MakeUser) -> None:
     user = await make_user(family_name="Uwase", email="uwase@example.test")
 
     assert repr(user) == f"<User {user.id}>"
+
+
+# --- Sanity authors ---
+
+
+async def test_two_users_cannot_share_a_sanity_author(
+    db_session: AsyncSession, make_user: MakeUser
+) -> None:
+    await make_user(sanity_author_id="author-1")
+    # Users without one don't clash.
+    await make_user()
+    await make_user()
+
+    with pytest.raises(IntegrityError, match="uq_users_sanity_author_id"):
+        await make_user(sanity_author_id="author-1")

@@ -108,6 +108,9 @@ class UserRead(BaseModel):
     email_verified_at: datetime | None
     role: Role
     has_password: bool = Field(description="Admins can't log in until a password is set.")
+    sanity_author_id: str | None = Field(
+        description="The Sanity author their blog posts are credited to, once linked."
+    )
     deactivated_at: datetime | None
     created_at: datetime
 

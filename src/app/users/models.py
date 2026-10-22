@@ -13,6 +13,8 @@ from app.core.database.base import Base, TimestampMixin
 FAMILY_NAME_MAX_LENGTH: Final = 64
 DISPLAY_NAME_MAX_LENGTH: Final = 100
 EMAIL_MAX_LENGTH: Final = 320
+# Sanity document IDs are at most 128 characters.
+SANITY_ID_MAX_LENGTH: Final = 128
 
 
 class Role(StrEnum):
@@ -87,6 +89,9 @@ class User(TimestampMixin, Base):
 
     photo_public_id: Mapped[str | None] = mapped_column(String(255))
     photo_url: Mapped[str | None] = mapped_column(String(1024))
+
+    # The Sanity `author` document their blog posts are credited to. One author per user.
+    sanity_author_id: Mapped[str | None] = mapped_column(String(SANITY_ID_MAX_LENGTH), unique=True)
 
     deactivated_at: Mapped[datetime | None]
 

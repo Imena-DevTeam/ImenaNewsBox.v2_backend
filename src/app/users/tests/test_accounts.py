@@ -22,6 +22,7 @@ ACCOUNT_FIELDS = {
     "email_verified_at",
     "role",
     "has_password",
+    "sanity_author_id",
     "deactivated_at",
     "created_at",
 }
