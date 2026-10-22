@@ -22,13 +22,17 @@ from app.posts.schemas import (
     PostListParams,
     PostRead,
     PostSummary,
+    PostUpdate,
 )
+from app.users.schemas import SANITY_ID_PATTERN
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
 SanityApi = Annotated[Sanity, Depends(get_sanity)]
 # Studio's slugs are lowercase words with dashes, at most 200 characters by default.
 Slug = Annotated[str, Path(min_length=1, max_length=200)]
+# Writes use the post's Sanity ID, which never changes (a slug can).
+PostId = Annotated[str, Path(pattern=SANITY_ID_PATTERN, max_length=128)]
 
 
 @router.get("")
@@ -72,3 +76,18 @@ async def list_authors(admin: AdminUser, db: DbSession, sanity: SanityApi) -> li
 async def get_post(slug: Slug, user: CurrentUser, sanity: SanityApi) -> PostRead:
     """One published post, with its body, by its slug."""
     return await service.get_post(sanity, slug)
+
+
+@router.patch("/{post_id}")
+async def update_post(
+    post_id: PostId, body: PostUpdate, writer: SocialMediaManagerUser, sanity: SanityApi
+) -> PostRead:
+    """Social media managers and admins: change any post's fields; send only what changes.
+    Its author stays the original writer."""
+    return await service.update_post(sanity, post_id, body)
+
+
+@router.delete("/{post_id}", status_code=HTTPStatus.NO_CONTENT)
+async def delete_post(post_id: PostId, writer: SocialMediaManagerUser, sanity: SanityApi) -> None:
+    """Social media managers and admins: delete any post."""
+    await service.delete_post(sanity, post_id)

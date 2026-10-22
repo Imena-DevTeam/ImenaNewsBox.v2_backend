@@ -31,6 +31,7 @@ from app.posts.schemas import (
     PostImageUploaded,
     PostRead,
     PostSummary,
+    PostUpdate,
 )
 from app.users import service as users_service
 from app.users.exceptions import NotAWriter
@@ -318,3 +319,64 @@ async def create_post(db: AsyncSession, sanity: Sanity, writer: User, data: Post
         body=body,
         updated_at=_updated_at(result, post_id),
     )
+
+
+async def update_post(sanity: Sanity, post_id: str, changes: PostUpdate) -> PostRead:
+    """Change a post's fields (any writer's post). The author stays the original writer.
+    Clears the posts cache. Raises `PostNotFound`, `SlugTaken` or `UnknownImage`.
+
+    Changes go to the published post. If someone also has an unpublished draft of it open
+    in the Studio, publishing that draft there would overwrite these changes.
+    """
+    sent = changes.model_fields_set
+    context = await _write_context(
+        sanity,
+        post_id=post_id,
+        slug=changes.slug if "slug" in sent else None,
+        asset_id=changes.image_asset_id if "image_asset_id" in sent else None,
+        with_post=True,
+    )
+    if not context.get("post"):
+        raise PostNotFound()
+    _check_slug_and_image(context, slug="slug" in sent, image="image_asset_id" in sent)
+    current = PostRead.model_validate(context["post"])
+
+    sanity_fields: dict[str, Any] = {}
+    read_fields: dict[str, Any] = {}
+    if changes.title is not None:
+        sanity_fields["title"] = read_fields["title"] = changes.title
+    if changes.slug is not None:
+        sanity_fields["slug"] = {"_type": "slug", "current": changes.slug}
+        read_fields["slug"] = changes.slug
+    if changes.summary is not None:
+        sanity_fields["summary"] = read_fields["summary"] = changes.summary
+    if changes.category is not None:
+        sanity_fields["categories"] = read_fields["category"] = changes.category
+    if changes.published_at is not None:
+        sanity_fields["publishedAt"] = _sanity_datetime(changes.published_at)
+        read_fields["published_at"] = changes.published_at
+    if changes.image_asset_id is not None:
+        sanity_fields["image"] = _image_field(changes.image_asset_id)
+        read_fields["image"] = PostImage.model_validate(context["asset"])
+    if changes.body is not None:
+        body = [block.model_dump(exclude_none=True) for block in changes.body]
+        sanity_fields["body"] = read_fields["body"] = body
+    if not sanity_fields:
+        return current
+
+    result = await sanity.mutate([{"patch": {"id": post_id, "set": sanity_fields}}])
+    clear_cache()
+    read_fields["updated_at"] = _updated_at(result, post_id) or current.updated_at
+    return current.model_copy(update=read_fields)
+
+
+async def delete_post(sanity: Sanity, post_id: str) -> None:
+    """Delete a published post (any writer's). Clears the posts cache. Raises `PostNotFound`.
+
+    Its image stays in Sanity unused. An unpublished Studio draft of it, if one exists, stays
+    a draft (our tokens only see published posts), and publishing it would bring it back.
+    """
+    if not await sanity.query('count(*[_type == "post" && _id == $id])', {"id": post_id}):
+        raise PostNotFound()
+    await sanity.mutate([{"delete": {"id": post_id}}])
+    clear_cache()

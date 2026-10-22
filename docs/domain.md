@@ -165,6 +165,12 @@ All under `/api/v1/posts`, and all need an access token.
 | `POST /images` | social media managers and admins | uploads a post image to Sanity (multipart field `image`: JPEG, PNG or WebP, at most 5 MB, checked by its content). 201 `{asset_id, url}`; send `asset_id` with the post. HEIC isn't accepted here (unlike profile photos): Sanity keeps post images as they are, and most browsers can't show HEIC. An image no post uses stays in Sanity unused |
 | `GET /authors` | admins | every published Sanity author by name, `[{id, name, image_url, user_id}]`, where `user_id` is the member it's linked to (or `null`). For linking authors; not cached |
 | `GET /{slug}` | any member | one published post with its `body` and `updated_at`; 404 `post_not_found` |
+| `PATCH /{id}` | social media managers and admins | changes **any** post's fields (by its Sanity ID, which never changes; a slug can). Send only what changes; nothing can be cleared. The author stays the original writer. Returns `PostRead`. Errors: 404 `post_not_found`, 409 `slug_taken`, 400 `unknown_image` |
+| `DELETE /{id}` | social media managers and admins | deletes any post (204). Its image stays in Sanity unused |
+
+Any social media manager can edit or delete any post, not only their own: it's one small team running one blog (decision 64's link only decides who a *new* post is credited to).
+
+**Studio drafts:** our tokens only see published posts. If someone also has an unpublished draft of a post open in the Studio, publishing that draft there overwrites edits made through the app, and a deleted post comes back. Editing in the app or in the Studio, not both, avoids this.
 
 **Authors.** Posts are credited to Sanity `author` documents, and each member can be linked to one author through `users.sanity_author_id`:
 - A post written through our app is credited to its writer's author. If the writer isn't linked yet, the backend creates an author for them on their first post.
