@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Backend API for Imena NewsBox, a private family platform for member profiles, birthday wishes and a blog. v2 is a from-scratch rewrite of v1 (`../backend`, Node/Express/MongoDB) with the same mission. **v1 is reference only:** don't port its code, endpoints or response shapes. Its data will be imported (see "v1 data import"). The v2 changes are documented in Notion ("Imena NewsBox" page).
 
-**Hard constraint: everything must run on free tiers.** That means a Render free web service, Neon free Postgres, and GitHub Actions. Don't introduce anything that needs a paid plan or an always-on extra process (workers, cron services, Redis) without asking.
+**Hard constraint: everything must run on free tiers.** That means Neon free Postgres and GitHub Actions. The backend is moving from Render to **Docker on a VPS** (decision 69); the team is still settling the details, including whether the VPS changes this rule, so keep everything else on free tiers until told otherwise. Don't introduce anything that needs a paid plan or an always-on extra process (workers, cron services, Redis) without asking.
 
 ## Stack
 
@@ -21,7 +21,7 @@ Backend API for Imena NewsBox, a private family platform for member profiles, bi
   - **Google sign-in:** `core/google.py` checks Google ID tokens with PyJWT (`pyjwt[crypto]`) against Google's public keys, fetched with `httpx`. No Google SDK. `GOOGLE_CLIENT_ID` is the frontend button's client ID; empty turns Google sign-in off.
   - **Email:** plain **SMTP**, sent with `aiosmtplib` (async) behind `core/email.py` (`SmtpEmailSender`). Settings: `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY` (`starttls`, `tls` or `none`; credentials need TLS), `SMTP_USERNAME`, `SMTP_PASSWORD`. Never the blocking `smtplib`. Tests use the fake; `core/tests/test_smtp.py` checks the real sender against a local `aiosmtpd` server.
 - pytest + pytest-asyncio + httpx; ruff; mypy
-- Docker, deployed as a single **Render free** web service
+- Docker, deployed as one container on a **VPS** (details pending; see "Deployment")
 
 ## Architecture
 
@@ -127,7 +127,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - Auth and role checks run **before** the cache is consulted.
   - On a cache miss, read from Sanity's **live** API, not the API CDN, to avoid stacking two layers of staleness.
   - The whole posts cache is cleared after every successful post write and on the Sanity webhook.
-  - This works because the free plan runs one instance. Moving to multiple instances would need a shared cache.
+  - This works because the backend runs as a single instance. Moving to multiple instances would need a shared cache.
 - **Postgres data is not cached** (users, wishes, sessions, the current user). The queries are cheap at family scale, and stale or cross-user data is the bigger risk.
 - **The one other cache:** Google's public signing keys, kept in memory by `core/google.py` for as long as Google's `Cache-Control` allows. They're public keys, not user data.
 - **Every response sends `Cache-Control: private, no-store`,** so Vercel's proxy or edge can never cache member data. `NoStoreMiddleware` in `main.py` sets it on every response and overwrites any value a route sets, so never try to send `public` or `s-maxage`.
@@ -188,13 +188,13 @@ Malware Guard (`.github/workflows/malware-guard.yml`) and CI (`.github/workflows
 
 ## Deployment
 
-- **Hosting:** one Docker image on one **Render free** web service. The frontend is on **Vercel** and reaches the API through its `/api/*` rewrite.
-- **Keep-awake:** an **UptimeRobot** monitor hits `/health` every 5 minutes so the instance never sleeps. `/health` must stay cheap and **must not touch the database**, so Neon can still scale to zero.
-- **Startup:** the container start command runs `alembic upgrade head` with the direct URL, then starts uvicorn. That's safe because the free plan runs a single instance and has no pre-deploy step.
+**Changing:** the backend now deploys with **Docker on a VPS** instead of Render's free plan (decision 69). Only that and SMTP email are decided; the team will share the rest (which VPS, the SMTP server, the reverse proxy and HTTPS, and whether Neon and Vercel stay). Don't build around a guess, and update this section when they arrive. Until then, the design below still holds:
+
+- **Hosting:** one Docker container, **one instance** (the posts cache relies on it). The frontend is on **Vercel** and reaches the API through its `/api/*` rewrite.
+- **`/health`** must stay cheap and **must not touch the database**, so a monitor can poll it while Neon still scales to zero. On a VPS nothing sleeps, so no keep-awake ping is needed.
+- **Startup:** the container start command runs `alembic upgrade head` with the direct URL, then starts uvicorn. That's safe with a single instance.
 - **Database:** Neon free.
-- **Free-plan limits to respect:**
-  - No outbound SMTP (ports 25/465/587 are blocked), which is why email goes over an HTTPS API (Resend or Gmail API).
-  - The disk is wiped on restart.
+- **Storage:** don't rely on the container's disk. Data goes to Neon, photos to Cloudinary, posts and their images to Sanity.
 - **Settings** come only from env vars; never bake secrets into the image.
 
 ## v1 data import
@@ -224,7 +224,7 @@ This is a one-off script, `scripts/import_v1.py`, that copies v1 MongoDB profile
 ## Open decisions (don't build around a guess)
 
 - **Sub-family and promotion lists:** the user will provide these during the `users` work. Don't invent values.
-- **Sanity post schema fields:** ask the user before building `posts`.
+- **Deployment details:** the VPS, the SMTP server and account, HTTPS and the reverse proxy, and whether Neon and Vercel stay. The team will share them; see "Deployment".
 - **Later features:** birthday emails (Slack covers this for now; these will need a scheduled GitHub Actions trigger) and Slack integration.
 
 ## v1 → v2 notes

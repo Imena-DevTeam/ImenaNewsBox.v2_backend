@@ -23,10 +23,10 @@ Grouping by feature keeps related code together and lets teammates work on diffe
 **5. Everything on free tiers.**
 This is a family project with no budget. That rules out paid plans, background workers, cron services and managed Redis.
 
-**6. Backend on Render (free), frontend on Vercel, database on Neon.**
+**6. Backend on Render (free), frontend on Vercel, database on Neon.** *The backend part is replaced by 69.*
 Render's own free Postgres expires after 30 days, so the database is on Neon, whose free tier doesn't expire. We considered Fly.io, but it no longer has a free plan for new accounts.
 
-**7. UptimeRobot pings `/health` every 5 minutes.**
+**7. UptimeRobot pings `/health` every 5 minutes.** *Not needed on a VPS (69); `/health` still mustn't touch the database.*
 Render free puts the app to sleep after 15 idle minutes, and the first request after that is slow. `/health` must not touch the database, so Neon can still scale to zero.
 
 **8. No Celery, no Redis.**
@@ -221,3 +221,6 @@ It's one of the few endpoints without a login, so it can do only one harmless th
 
 **68. Email is plain SMTP, sent asynchronously.**
 We're deploying with Docker on a VPS instead of Render's free plan, which blocked outgoing SMTP, so the reason for an HTTP email API is gone and the team chose plain SMTP. It's sent with `aiosmtplib`, because the standard `smtplib` blocks and would hold up every other request while a mail server answers. The rest of decision 43 stands: 5 seconds per attempt, one retry, and `email_not_configured` until `SMTP_HOST` and `EMAIL_FROM` are set. With `starttls` or `tls`, the server's certificate is checked and the connection never falls back to plain text; `none` is only for a relay on the same machine, so the settings refuse a username or password without TLS. Each code opens its own connection, since codes are rare. Errors are reported by type only, because SMTP replies can repeat the recipient's address. Message IDs use the sending domain, not the server's hostname.
+
+**69. The backend deploys with Docker on a VPS, not Render.**
+The team moved the backend from Render's free web service to a VPS, running the same Docker image. That removes Render's limits: outgoing SMTP works (so email is SMTP, decision 68), the app doesn't sleep (so no keep-awake ping is needed), and the disk isn't wiped on restart, though nothing is stored on it anyway. What still holds: one container and one instance (the posts cache is in memory), migrations on start, settings only from environment variables, and `/health` never touching the database. The VPS itself, HTTPS and the reverse proxy, the SMTP server, and whether Neon and Vercel's `/api/*` proxy stay are still to be decided by the team.
