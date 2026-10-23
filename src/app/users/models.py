@@ -40,7 +40,7 @@ _ROLE_RANKS: Final = {role: rank for rank, role in enumerate(Role)}
 
 
 class SubFamily(Base):
-    """A fixed list, filled in by a migration once the values are agreed."""
+    """A fixed list, from a migration."""
 
     __tablename__ = "sub_families"
 
@@ -49,12 +49,15 @@ class SubFamily(Base):
 
 
 class Promotion(Base):
-    """A fixed list, filled in by a migration once the values are agreed."""
+    """A cohort, from a migration. A new one arrives every year; members move up a year with
+    their promotion, so the year isn't stored, only the order."""
 
     __tablename__ = "promotions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True)
+    # Oldest first: 1 is the earliest promotion, and each new one takes the next number.
+    position: Mapped[int] = mapped_column(unique=True)
 
 
 class User(TimestampMixin, Base):

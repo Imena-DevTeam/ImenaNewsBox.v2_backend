@@ -39,7 +39,7 @@ async def test_an_admin_registers_a_member(
     admin_headers: dict[str, str],
     sub_family: SubFamily,
 ) -> None:
-    promotion = Promotion(name="Test promotion")
+    promotion = Promotion(name="Test promotion", position=1000)
     db_session.add(promotion)
     await db_session.flush()
 

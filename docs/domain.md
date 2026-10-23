@@ -67,7 +67,7 @@ All under `/api/v1/users`, and all need an access token.
 |---|---|---|
 | `GET /` | any member | the directory: active members, alphabetical by display name, paginated (`?page=&limit=`), as `UserPublicRead` |
 | `GET /{id}` | any member | one active member as `UserPublicRead`; 404 `user_not_found` for unknown or deactivated users |
-| `GET /sub-families`, `GET /promotions` | any member | the fixed lookup lists, sorted by name. They're short and fixed, so they're plain lists, not pages |
+| `GET /sub-families`, `GET /promotions` | any member | the fixed lookup lists: sub-families by name, promotions **oldest first** (by their `position`). They're short, so they're plain lists, not pages |
 | `GET /me` | any member | your own account as `UserRead` |
 | `PATCH /me` | any member | changes your own `display_name` and `birthday` (null clears it), and nothing else: any other field is a 422. Returns `UserRead` |
 | `POST /me/email/verify` | any member | `{code}`: confirms your email with the code sent to it, and sets `email_verified_at`. 401 `invalid_code` otherwise; login codes don't work here |

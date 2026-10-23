@@ -139,7 +139,7 @@ async def test_sub_family_must_exist(db_session: AsyncSession, make_user: MakeUs
 async def test_promotion_is_optional_but_must_exist(
     db_session: AsyncSession, make_user: MakeUser
 ) -> None:
-    promotion = Promotion(name="Test promotion")
+    promotion = Promotion(name="Test promotion", position=1000)
     db_session.add(promotion)
     await db_session.flush()
 
@@ -211,3 +211,10 @@ async def test_plain_members_cannot_have_a_sanity_author(
 
     with pytest.raises(IntegrityError, match="ck_users_sanity_author_role"):
         await make_user(role=Role.MEMBER, sanity_author_id="author-4")
+
+
+async def test_two_promotions_cannot_share_a_position(db_session: AsyncSession) -> None:
+    db_session.add_all([Promotion(name="One", position=2000), Promotion(name="Two", position=2000)])
+
+    with pytest.raises(IntegrityError, match="uq_promotions_position"):
+        await db_session.flush()
