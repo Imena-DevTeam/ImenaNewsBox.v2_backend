@@ -63,7 +63,7 @@ PRs #4, #5 and #6 cover this. `core/config.py` was started in #7, and a fix is i
 - Dev C can start CI right away, and wire in pytest and Alembic as those land.
 
 **Decision gates (start collecting now, needed in Phase 2–3):**
-- Email provider: Resend or Gmail API
+- Email: SMTP (chosen; server and account still to pick)
 - Sub-family and promotion lists
 - Sanity post schema fields
 
@@ -92,7 +92,7 @@ PRs #4, #5 and #6 cover this. `core/config.py` was started in #7, and a fix is i
 
 **Decision gates:**
 - **Sub-family and promotion lists:** needed before Dev A's migration.
-- **Email provider:** needed before Dev D's real implementation. Until then, the fake keeps everything testable.
+- **Email:** SMTP is built (decision 68); only the server and account are still to pick. Tests use the fake.
 
 **Done when:**
 - The seeded admin logs in with family name + password + code.
@@ -140,7 +140,7 @@ PRs #4, #5 and #6 cover this. `core/config.py` was started in #7, and a fix is i
 | **Dev D: Data & onboarding** | Run the v1 import on production · help imported admins set passwords · a short "how to log in" note for family members · retire v1 (Render service, MongoDB) once v2 is confirmed |
 
 **Decision gate:**
-- **The email provider must be live** (credentials in production env vars). Without it, nobody can log in.
+- **SMTP must be configured in production** (`SMTP_*` and `EMAIL_FROM`). Without it, nobody can log in.
 
 **Done when:**
 - Members log in to production on their phones and stay logged in across days.

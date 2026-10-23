@@ -1,5 +1,6 @@
 """Application settings, read from environment variables (and `.env` locally)."""
 
+from email.utils import parseaddr
 from functools import lru_cache
 from typing import Annotated, Literal, Self
 
@@ -42,12 +43,16 @@ class Settings(BaseSettings):
     # The name of an existing sub-family (they come from a migration); it's never created.
     first_admin_sub_family: str = ""
 
-    # Email (provider not chosen yet)
+    # Email over SMTP. Until SMTP_HOST and EMAIL_FROM are set, sending fails clearly.
+    # EMAIL_FROM is e.g. "Imena NewsBox <no-reply@example.org>".
     email_from: str = ""
-    resend_api_key: SecretStr = SecretStr("")
-    gmail_client_id: str = ""
-    gmail_client_secret: SecretStr = SecretStr("")
-    gmail_refresh_token: SecretStr = SecretStr("")
+    smtp_host: str = ""
+    smtp_port: int = 587
+    # "starttls" (usually port 587), "tls" (usually 465), or "none" for a relay on the
+    # same machine, which then can't take a username or password.
+    smtp_security: Literal["starttls", "tls", "none"] = "starttls"
+    smtp_username: str = ""
+    smtp_password: SecretStr = SecretStr("")
 
     # Sanity CMS
     sanity_project_id: str = ""
@@ -75,6 +80,26 @@ class Settings(BaseSettings):
         if "*" in value:
             raise ValueError("CORS_ORIGINS must list explicit origins, never '*'")
         return value
+
+    @field_validator("email_from")
+    @classmethod
+    def _check_email_from(cls, value: str) -> str:
+        if value and "@" not in parseaddr(value)[1]:
+            raise ValueError(
+                'EMAIL_FROM must be an address, e.g. "Imena NewsBox <no-reply@example.org>"'
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _no_smtp_password_in_the_clear(self) -> Self:
+        if self.smtp_security == "none" and (
+            self.smtp_username or self.smtp_password.get_secret_value()
+        ):
+            raise ValueError(
+                "SMTP_USERNAME and SMTP_PASSWORD need SMTP_SECURITY=starttls or tls, "
+                "so the password is never sent unencrypted"
+            )
+        return self
 
     @model_validator(mode="after")
     def _require_token_secrets_in_production(self) -> Self:

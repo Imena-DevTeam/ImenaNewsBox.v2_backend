@@ -22,13 +22,13 @@ Imena NewsBox is a **private family platform**. Admins register family members, 
 - **API:** Python 3.14, FastAPI, Pydantic v2, async SQLAlchemy 2.x, Alembic. Managed with **uv**.
 - **Database:** Postgres on **Neon** (free tier).
 - **Hosting:** one Docker container on **Render** (free tier). The Next.js frontend is on **Vercel**.
-- **External services:** **Sanity** (blog content), **Cloudinary** (profile photos), and an email provider (Resend or the Gmail API; not chosen yet).
+- **External services:** **Sanity** (blog content), **Cloudinary** (profile photos), and an SMTP server for email.
 - **Hard rule:** everything must run on free tiers.
 
 ## Open decisions
 
 These are not settled yet. Don't build around a guess; ask in the team channel.
 
-- **Email provider:** Resend (needs a verified sending domain) or the Gmail API (free, no domain). All email goes through `core/email.py` either way.
+- **Email:** plain SMTP (decision 68). The server and account are still to be chosen by the team; all email goes through `core/email.py`.
 - **Sub-family and promotion lists:** values will be provided when the `users` feature is built.
 - **Sanity post fields:** the schema already exists in Sanity, so get the details before building `posts`.

@@ -1,5 +1,7 @@
 # Infrastructure
 
+> **Being updated:** the backend now deploys with **Docker on a VPS** instead of Render (decision 69), and email is plain SMTP (decision 68). The rest of this page still describes the Render setup until the team settles the VPS details.
+
 ## The free-tier rule
 
 **Everything runs on free tiers.** Before adding a service, a process or a paid feature, ask the team. This rule is why there's no Celery, no Redis and no background workers.
@@ -14,7 +16,7 @@ flowchart LR
     R --> N[("Neon (free)<br/>Postgres")]
     R --> S["Sanity<br/>blog content"]
     R --> C["Cloudinary<br/>profile photos"]
-    R --> M["Email provider<br/>(Resend or Gmail API)"]
+    R --> M["SMTP server<br/>(email)"]
     S -->|webhook| R
 ```
 
@@ -26,11 +28,10 @@ flowchart LR
 | Keep-awake | UptimeRobot | Pings `/health` every 5 minutes so Render doesn't put the app to sleep |
 | Blog | Sanity | Private dataset; only our backend talks to it |
 | Photos | Cloudinary | Profile photos only |
-| Email | Resend or Gmail API | Not chosen yet; always over HTTPS |
+| Email | SMTP server | Plain SMTP with STARTTLS or TLS, sent with `aiosmtplib`; server and account to be chosen by the team |
 
 ## Free-tier limits we design around
 
-- **Render free blocks outbound SMTP** (ports 25, 465, 587). Email must go through an HTTP API, which is why it's Resend or the Gmail API and never plain SMTP.
 - **Render's disk is wiped on every restart.** Nothing is stored locally: data goes to Neon, photos to Cloudinary, posts to Sanity.
 - **Render free has no pre-deploy step and runs a single instance.** The container's start command runs `alembic upgrade head` and then starts the server. That's safe with one instance.
 - **Render free sleeps after 15 minutes without traffic.** UptimeRobot prevents this. **`/health` must never touch the database**, otherwise those pings would keep Neon awake too and burn through its free compute.
