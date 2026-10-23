@@ -99,7 +99,8 @@ async def list_sub_families(db: AsyncSession) -> list[SubFamily]:
 
 
 async def list_promotions(db: AsyncSession) -> list[Promotion]:
-    return list(await db.scalars(select(Promotion).order_by(Promotion.name)))
+    """Oldest promotion first."""
+    return list(await db.scalars(select(Promotion).order_by(Promotion.position)))
 
 
 # --- Creating and changing users ---

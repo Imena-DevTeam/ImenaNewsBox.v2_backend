@@ -21,8 +21,8 @@ PUBLIC_FIELDS = {
 }
 
 
-async def _promotion(db: AsyncSession, name: str) -> Promotion:
-    row = Promotion(name=name)
+async def _promotion(db: AsyncSession, name: str, position: int = 1000) -> Promotion:
+    row = Promotion(name=name, position=position)
     db.add(row)
     await db.flush()
     return row
@@ -143,7 +143,31 @@ async def test_deactivated_and_unknown_members_are_not_found(
 # --- Lookup lists ---
 
 
-async def test_sub_families_and_promotions_are_listed_by_name(
+async def test_the_family_lists_come_from_the_migration(
+    client: AsyncClient, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    headers = await login_as(await make_user())
+
+    families = await client.get(f"{USERS}/sub-families", headers=headers)
+    promotions = await client.get(f"{USERS}/promotions", headers=headers)
+
+    seeded_families = {"HOPE", "LIGHT", "WIHOGORA"}
+    assert [row["name"] for row in families.json() if row["name"] in seeded_families] == [
+        "HOPE",
+        "LIGHT",
+        "WIHOGORA",
+    ]
+    seeded_promotions = {"IBIMANUKA", "NKONGI", "SHEJA_NGABO", "IBIHAME"}
+    # Oldest first: graduates, then year 3, year 2 and year 1.
+    assert [row["name"] for row in promotions.json() if row["name"] in seeded_promotions] == [
+        "IBIMANUKA",
+        "NKONGI",
+        "SHEJA_NGABO",
+        "IBIHAME",
+    ]
+
+
+async def test_sub_families_by_name_and_promotions_oldest_first(
     client: AsyncClient,
     db_session: AsyncSession,
     make_user: MakeUser,
@@ -152,19 +176,23 @@ async def test_sub_families_and_promotions_are_listed_by_name(
 ) -> None:
     second = SubFamily(name="AAA first by name")
     db_session.add(second)
-    late, early = await _promotion(db_session, "2021"), await _promotion(db_session, "2009")
+    # Created newest first, so the order has to come from `position`, not insertion.
+    newer = await _promotion(db_session, "Aaa newer", position=1001)
+    older = await _promotion(db_session, "Zzz older", position=1000)
     headers = await login_as(await make_user())
 
     families = await client.get(f"{USERS}/sub-families", headers=headers)
     promotions = await client.get(f"{USERS}/promotions", headers=headers)
 
-    assert families.json() == [
+    # The migration's own lists are there too; keep only this test's rows.
+    mine = {second.id, sub_family.id, newer.id, older.id}
+    assert [row for row in families.json() if row["id"] in mine] == [
         {"id": second.id, "name": "AAA first by name"},
         {"id": sub_family.id, "name": sub_family.name},
     ]
-    assert promotions.json() == [
-        {"id": early.id, "name": "2009"},
-        {"id": late.id, "name": "2021"},
+    assert [row for row in promotions.json() if row["id"] in mine] == [
+        {"id": older.id, "name": "Zzz older"},
+        {"id": newer.id, "name": "Aaa newer"},
     ]
 
 

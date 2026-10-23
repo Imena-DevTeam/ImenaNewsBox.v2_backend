@@ -43,7 +43,7 @@ async def test_an_admin_changes_a_members_fields(
 ) -> None:
     member = await make_user(birthday=date(1990, 1, 1))
     other_family = SubFamily(name="Another sub-family")
-    promotion = Promotion(name="Test promotion")
+    promotion = Promotion(name="Test promotion", position=1000)
     db_session.add_all([other_family, promotion])
     await db_session.flush()
 
@@ -94,7 +94,7 @@ async def test_promotion_and_birthday_can_be_cleared(
     make_user: MakeUser,
     admin_headers: dict[str, str],
 ) -> None:
-    promotion = Promotion(name="Test promotion")
+    promotion = Promotion(name="Test promotion", position=1000)
     db_session.add(promotion)
     await db_session.flush()
     member = await make_user(birthday=date(1990, 1, 1), promotion_id=promotion.id)

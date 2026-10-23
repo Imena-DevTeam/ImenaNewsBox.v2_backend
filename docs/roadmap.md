@@ -64,7 +64,7 @@ PRs #4, #5 and #6 cover this. `core/config.py` was started in #7, and a fix is i
 
 **Decision gates (start collecting now, needed in Phase 2–3):**
 - Email: SMTP (chosen; server and account still to pick)
-- Sub-family and promotion lists
+- Sub-family and promotion lists (done: decision 70)
 - Sanity post schema fields
 
 **Done when:**
@@ -91,7 +91,7 @@ PRs #4, #5 and #6 cover this. `core/config.py` was started in #7, and a fix is i
 - **Dev B builds against the Phase 1 email fake.** The real provider (Dev D) can land independently.
 
 **Decision gates:**
-- **Sub-family and promotion lists:** needed before Dev A's migration.
+- **Sub-family and promotion lists:** done, seeded by a migration (decision 70).
 - **Email:** SMTP is built (decision 68); only the server and account are still to pick. Tests use the fake.
 
 **Done when:**

@@ -54,6 +54,11 @@ There's no separate "profile" table: profile fields live on `users`. A user has 
 
 > These are the minimum fields, not the final schema. Columns are added as features need them.
 
+**The lookup lists** (seeded by a migration):
+- **Sub-families:** HOPE, LIGHT, WIHOGORA. Every user has one.
+- **Promotions,** oldest first: IBIMANUKA (graduates), NKONGI (year 3), SHEJA_NGABO (year 2), IBIHAME (year 1), as of 2026. Members move up a year with their promotion, and a new promotion arrives every year, so only the order (`position`) is stored, never the year. A promotion is optional: members imported from v1 have none until an admin sets it.
+- **Adding next year's promotion** is a small data migration that inserts it at the next `position`.
+
 **Rules:**
 - **No self-signup.** Only admins create users. The very first admin is created by a seed script from environment variables.
 - **Changing an email** (admin only) clears `email_verified_at` and sends a code to the new address, which the user confirms while logged in.
@@ -67,7 +72,7 @@ All under `/api/v1/users`, and all need an access token.
 |---|---|---|
 | `GET /` | any member | the directory: active members, alphabetical by display name, paginated (`?page=&limit=`), as `UserPublicRead` |
 | `GET /{id}` | any member | one active member as `UserPublicRead`; 404 `user_not_found` for unknown or deactivated users |
-| `GET /sub-families`, `GET /promotions` | any member | the fixed lookup lists, sorted by name. They're short and fixed, so they're plain lists, not pages |
+| `GET /sub-families`, `GET /promotions` | any member | the fixed lookup lists: sub-families by name, promotions **oldest first** (by their `position`). They're short, so they're plain lists, not pages |
 | `GET /me` | any member | your own account as `UserRead` |
 | `PATCH /me` | any member | changes your own `display_name` and `birthday` (null clears it), and nothing else: any other field is a 422. Returns `UserRead` |
 | `POST /me/email/verify` | any member | `{code}`: confirms your email with the code sent to it, and sets `email_verified_at`. 401 `invalid_code` otherwise; login codes don't work here |
