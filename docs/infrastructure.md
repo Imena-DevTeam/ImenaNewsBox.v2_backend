@@ -102,10 +102,10 @@ Malware Guard (`malware-guard.yml`) and the CI workflow (`CI.yaml`: ruff, mypy, 
 
 Every user is created by an admin, so the very first admin comes from a command instead: `scripts/seed_admin.py`. Render's free plan has no shell, so you run it **from your own machine** against the target database.
 
-1. **Sub-families first.** Every user needs one, and they're added by a migration. The seed only works once that migration has run on the target database (Render runs `alembic upgrade head` on every start).
+1. **Sub-families first.** Every user needs one, and they're added by a migration (HOPE, LIGHT and WIHOGORA). The seed only works once that migration has run on the target database (the container runs `alembic upgrade head` on every start).
 2. **Settings.** In your local `.env` (never committed), or as environment variables for one run:
    - `DATABASE_URL`: the target database. For Neon, the **direct** (unpooled) URL is the simplest for a one-off script.
-   - `FIRST_ADMIN_FAMILY_NAME`, `FIRST_ADMIN_EMAIL`, `FIRST_ADMIN_PASSWORD` (at least 12 characters) and `FIRST_ADMIN_SUB_FAMILY` (the **exact name** of an existing sub-family).
+   - `FIRST_ADMIN_FAMILY_NAME`, `FIRST_ADMIN_EMAIL`, `FIRST_ADMIN_PASSWORD` (at least 12 characters) and `FIRST_ADMIN_SUB_FAMILY` (the **exact name** of an existing sub-family: `HOPE`, `LIGHT` or `WIHOGORA`).
 3. **Run it:** `uv run python scripts/seed_admin.py`. It prints "Created the admin …" or "… already exists; nothing changed", and exits with 1 and a reason if it refuses.
 4. **Log in:** the admin logs in with family name + password, then the emailed code (or Google). Remove `FIRST_ADMIN_PASSWORD` from your `.env` afterwards; the database only keeps its hash.
 

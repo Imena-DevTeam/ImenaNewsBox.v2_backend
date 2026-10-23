@@ -100,7 +100,9 @@ async def test_the_sub_family_must_already_exist(
     with pytest.raises(FirstAdminError, match="no sub-family named 'Imaginary'"):
         await seed_first_admin(db_session, **_args(sub_family, sub_family="Imaginary"))
 
-    assert await db_session.scalar(select(func.count()).select_from(SubFamily)) == 1
+    # It never creates the sub-family it was asked for.
+    imaginary = select(func.count()).select_from(SubFamily).where(SubFamily.name == "Imaginary")
+    assert await db_session.scalar(imaginary) == 0
     assert await _admins(db_session) == 0
 
 

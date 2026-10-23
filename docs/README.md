@@ -30,5 +30,5 @@ Imena NewsBox is a **private family platform**. Admins register family members, 
 These are not settled yet. Don't build around a guess; ask in the team channel.
 
 - **Email:** plain SMTP (decision 68). The server and account are still to be chosen by the team; all email goes through `core/email.py`.
-- **Sub-family and promotion lists:** values will be provided when the `users` feature is built.
+- **Sub-family and promotion lists:** seeded by a migration (decision 70).
 - **Sanity post fields:** the schema already exists in Sanity, so get the details before building `posts`.

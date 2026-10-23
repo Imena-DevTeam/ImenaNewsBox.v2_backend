@@ -143,6 +143,30 @@ async def test_deactivated_and_unknown_members_are_not_found(
 # --- Lookup lists ---
 
 
+async def test_the_family_lists_come_from_the_migration(
+    client: AsyncClient, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    headers = await login_as(await make_user())
+
+    families = await client.get(f"{USERS}/sub-families", headers=headers)
+    promotions = await client.get(f"{USERS}/promotions", headers=headers)
+
+    seeded_families = {"HOPE", "LIGHT", "WIHOGORA"}
+    assert [row["name"] for row in families.json() if row["name"] in seeded_families] == [
+        "HOPE",
+        "LIGHT",
+        "WIHOGORA",
+    ]
+    seeded_promotions = {"IBIMANUKA", "NKONGI", "SHEJA_NGABO", "IBIHAME"}
+    # Oldest first: graduates, then year 3, year 2 and year 1.
+    assert [row["name"] for row in promotions.json() if row["name"] in seeded_promotions] == [
+        "IBIMANUKA",
+        "NKONGI",
+        "SHEJA_NGABO",
+        "IBIHAME",
+    ]
+
+
 async def test_sub_families_by_name_and_promotions_oldest_first(
     client: AsyncClient,
     db_session: AsyncSession,
