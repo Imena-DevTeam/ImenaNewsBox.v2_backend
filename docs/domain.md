@@ -202,7 +202,7 @@ The order matters: the new photo is uploaded and saved **before** the old one is
 
 ## Data imported from v1
 
-v1's MongoDB profiles will be imported into `users` by a one-off script (`scripts/import_v1.py`), after the `users` feature exists:
+v1's MongoDB profiles are imported into `users` by a one-off script (`scripts/import_v1.py`). [Infrastructure](infrastructure.md#importing-v1s-members) has the steps.
 
 | v1 (`Profile`) | v2 (`users`) |
 |---|---|
@@ -210,9 +210,10 @@ v1's MongoDB profiles will be imported into `users` by a one-off script (`script
 | `familyName` | family name |
 | `email`, `birthday` | email, birthday |
 | `subFam` | `sub_family_id` (must match the fixed list) |
-| `profilePic` | profile photo |
+| `profilePic` | profile photo (Cloudinary links only) |
+| `_id` | `legacy_id` (unique), and its creation time becomes `created_at` |
 
-- **Roles** come from v1's `ADMINNAMES` list. Imported admins need a password set before they can log in.
-- **Imported state:** everyone starts with `email_verified_at` empty and no sessions, so each member verifies on their first login.
+- **Roles:** everyone is imported as a plain member. The seeded first admin promotes the others in the app and links the Sanity authors.
+- **Imported state:** everyone starts with `email_verified_at` empty, no promotion and no sessions, so each member verifies on their first login.
 - **v1 wishes are not imported.** They had no recipient and were wiped nightly anyway.
-- **Safety:** the script can be re-run safely (it upserts by family name), and it's tested on a Neon branch first.
+- **Safety:** it's a dry run unless asked to write, and running it again is safe. It finds people already in v2 by `legacy_id`, or else by family name with a matching email, and only fills their empty fields. It's tested on a Neon branch first.
