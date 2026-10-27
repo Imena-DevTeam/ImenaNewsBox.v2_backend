@@ -4,8 +4,9 @@ The script reads the profiles with pymongo and passes them in as plain dicts, so
 imports pymongo and these rules are tested like the rest of it.
 
 Every imported member starts as a plain member: unverified, with no promotion, password,
-Sanity author or sessions. Admins promote people in the app afterwards. Running it again is
-safe: a user already in v2 is never overwritten, only their empty fields are filled.
+Sanity author or sessions. Admins promote people in the app afterwards. Their v1 `_id` is kept
+as `legacy_id`. Running it again is safe: a user already in v2 (found by `legacy_id`, or else
+by family name) is never overwritten, only their empty fields are filled.
 """
 
 import re
@@ -45,7 +46,8 @@ class V1Profile(BaseModel):
 
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True, frozen=True)
 
-    source_id: str = Field(alias="_id")
+    # The ObjectId in hex, kept as `users.legacy_id`.
+    legacy_id: str = Field(alias="_id", pattern=r"^[0-9a-f]{24}$")
     # When v1 created the profile (from its MongoDB ObjectId), kept as `created_at`.
     created_at: datetime | None = None
     display_name: DisplayName = Field(alias="name")
@@ -114,6 +116,7 @@ async def import_v1_profiles(
 
     # Family scale: a few hundred users at most, so load them all once.
     users = list(await db.scalars(select(User)))
+    by_legacy_id = {user.legacy_id: user for user in users if user.legacy_id}
     by_family_name = {user.family_name.lower(): user for user in users}
     by_email = {user.email.lower(): user for user in users}
 
@@ -121,16 +124,14 @@ async def import_v1_profiles(
     fills: list[tuple[User, dict[str, Any]]] = []
     for row in rows:
         profile = row.profile
-        existing = by_family_name.get(profile.family_name.lower())
-        if existing is not None:
-            if existing.email.lower() != profile.email.lower():
-                report.skipped.append(
-                    Note(
-                        profile.family_name,
-                        "already in v2 with a different email, so it was left alone",
-                    )
-                )
+        # Imported before, even if an admin has since changed their family name or email.
+        existing = by_legacy_id.get(profile.legacy_id)
+        if existing is None:
+            existing = by_family_name.get(profile.family_name.lower())
+            if existing is not None and (reason := _someone_else(existing, profile)):
+                report.skipped.append(Note(profile.family_name, reason))
                 continue
+        if existing is not None:
             changes = _empty_fields(existing, row)
             if not changes:
                 report.unchanged.append(profile.family_name)
@@ -165,7 +166,7 @@ async def import_v1_profiles(
         except IntegrityError as exc:
             await db.rollback()
             raise V1ImportError(
-                "A family name or email was taken while the import ran. Run it again."
+                "A family name, email or v1 ID was taken while the import ran. Run it again."
             ) from exc
     return report
 
@@ -299,6 +300,7 @@ def _new_user(row: _Row) -> User:
         email=profile.email,
         birthday=row.birthday,
         sub_family_id=row.sub_family_id,
+        legacy_id=profile.legacy_id,
     )
     if row.photo is not None:
         user.photo_url, user.photo_public_id = row.photo.url, row.photo.public_id
@@ -307,9 +309,20 @@ def _new_user(row: _Row) -> User:
     return user
 
 
+def _someone_else(user: User, profile: V1Profile) -> str | None:
+    """Why a v2 user with this profile's family name isn't this v1 member, if they aren't."""
+    if user.legacy_id is not None:
+        return "the family name is already in v2 for another v1 profile"
+    if user.email.lower() != profile.email.lower():
+        return "already in v2 with a different email, so it was left alone"
+    return None
+
+
 def _empty_fields(user: User, row: _Row) -> dict[str, Any]:
     """The v1 values for the fields this existing user hasn't set yet."""
     changes: dict[str, Any] = {}
+    if user.legacy_id is None:
+        changes["legacy_id"] = row.profile.legacy_id
     # The seed names the first admin after their family name until they choose a name.
     if user.display_name == user.family_name != row.profile.display_name:
         changes["display_name"] = row.profile.display_name

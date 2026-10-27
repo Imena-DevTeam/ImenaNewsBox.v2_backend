@@ -1,3 +1,4 @@
+import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from datetime import UTC, date, datetime
@@ -18,10 +19,15 @@ OUR_PHOTO = PHOTO.replace("v1-cloud", OUR_CLOUD)
 V1_CREATED = datetime(2025, 9, 26, 8, 30, tzinfo=UTC)
 
 
+def _object_id(family_name: str) -> str:
+    """A made-up MongoDB ObjectId in hex, the same for the same family name."""
+    return hashlib.sha256(family_name.encode()).hexdigest()[:24]
+
+
 def _profile(family_name: str = "AMATA", **overrides: Any) -> dict[str, Any]:
     """A v1 profile as the script hands it over (see the example in docs/domain.md)."""
     return {
-        "_id": f"id-{family_name}",
+        "_id": _object_id(family_name),
         "created_at": V1_CREATED,
         "name": f"{family_name.title()} Member",
         "familyName": family_name,
@@ -67,6 +73,7 @@ async def test_a_profile_becomes_a_plain_member(db_session: AsyncSession) -> Non
     assert user.sub_family_id == (await _sub_family(db_session, "LIGHT")).id
     assert user.photo_url == PHOTO
     assert user.created_at == V1_CREATED
+    assert user.legacy_id == _object_id("AMATA")
     # Everything v1 didn't have starts empty, and admins promote people in the app.
     assert user.role is Role.MEMBER
     assert user.email_verified_at is None
@@ -215,12 +222,17 @@ async def test_an_unusable_birthday_is_left_empty(
 @pytest.mark.parametrize(
     ("overrides", "who", "reason"),
     [
-        ({"familyName": "  "}, "v1 profile id-AMATA", "familyName: String should have at least"),
+        (
+            {"familyName": "  "},
+            f"v1 profile {_object_id('AMATA')}",
+            "familyName: String should have at least",
+        ),
+        ({"_id": "not-an-object-id"}, "AMATA", "_id: String should match pattern"),
         ({"email": "not an email"}, "AMATA", "email isn't a valid address"),
         ({"name": None}, "AMATA", "name: Input should be a valid string"),
         ({"subFam": 7}, "AMATA", "subFam: Input should be a valid string"),
     ],
-    ids=["blank-family-name", "bad-email", "no-name", "odd-sub-family"],
+    ids=["blank-family-name", "bad-id", "bad-email", "no-name", "odd-sub-family"],
 )
 async def test_invalid_profiles_are_skipped(
     db_session: AsyncSession, overrides: dict[str, Any], who: str, reason: str
@@ -295,6 +307,7 @@ async def test_the_seeded_admin_only_gets_their_empty_fields_filled(
     assert admin.display_name == "Amata Member"
     assert admin.birthday == date(2008, 10, 24)
     assert admin.photo_url == PHOTO
+    assert admin.legacy_id == _object_id("AMATA")
     # Everything else stays as it was.
     assert admin.role is Role.ADMIN
     assert admin.password_hash == "a hash"
@@ -313,6 +326,7 @@ async def test_what_a_member_set_in_v2_is_never_overwritten(
         birthday=date(2008, 10, 25),
         photo_url="https://res.cloudinary.com/our-cloud/image/upload/v1/new.png",
         photo_public_id="new",
+        legacy_id=_object_id("AMATA"),
     )
 
     report = await _import(db_session, _profile())
@@ -368,3 +382,37 @@ async def test_the_report_never_contains_an_email(
 
     assert len(report.skipped) == 6
     assert "@" not in str(asdict(report))
+
+
+async def test_an_imported_member_is_found_by_their_v1_id(
+    db_session: AsyncSession, make_user: MakeUser
+) -> None:
+    # Imported before, then an admin changed their family name and email.
+    member = await make_user(
+        family_name="AMATA2",
+        email="new@example.com",
+        legacy_id=_object_id("AMATA"),
+    )
+
+    report = await _import(db_session, _profile())
+
+    assert report.filled == ["AMATA"]
+    assert report.skipped == []
+    assert (member.family_name, member.email) == ("AMATA2", "new@example.com")
+    assert member.birthday == date(2008, 10, 24)
+    assert await _user(db_session, "AMATA") is None
+
+
+async def test_a_family_name_from_another_v1_profile_is_left_alone(
+    db_session: AsyncSession, make_user: MakeUser
+) -> None:
+    member = await make_user(
+        family_name="AMATA", email="amata@example.com", legacy_id=_object_id("SOMEONE")
+    )
+
+    report = await _import(db_session, _profile())
+
+    assert report.skipped == [
+        Note("AMATA", "the family name is already in v2 for another v1 profile")
+    ]
+    assert member.legacy_id == _object_id("SOMEONE")

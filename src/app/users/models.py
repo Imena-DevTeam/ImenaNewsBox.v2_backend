@@ -15,6 +15,8 @@ DISPLAY_NAME_MAX_LENGTH: Final = 100
 EMAIL_MAX_LENGTH: Final = 320
 # Sanity document IDs are at most 128 characters.
 SANITY_ID_MAX_LENGTH: Final = 128
+# A MongoDB ObjectId in hex.
+LEGACY_ID_LENGTH: Final = 24
 
 
 class Role(StrEnum):
@@ -105,6 +107,10 @@ class User(TimestampMixin, Base):
     sanity_author_id: Mapped[str | None] = mapped_column(String(SANITY_ID_MAX_LENGTH), unique=True)
 
     deactivated_at: Mapped[datetime | None]
+
+    # The v1 MongoDB `_id` (an ObjectId in hex) of members imported from v1, for tracing a
+    # user back to their v1 profile. Empty for everyone added in v2.
+    legacy_id: Mapped[str | None] = mapped_column(String(LEGACY_ID_LENGTH), unique=True)
 
     sub_family: Mapped[SubFamily] = relationship(lazy="raise")
     promotion: Mapped[Promotion | None] = relationship(lazy="raise")
