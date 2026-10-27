@@ -111,6 +111,50 @@ Every user is created by an admin, so the very first admin comes from a command 
 
 Running it again is safe: it never resets the password or changes another user. Try it on a Neon branch first, like the v1 import.
 
+## Importing v1's members
+
+`scripts/import_v1.py` copies v1's MongoDB profiles into `users`. You run it **from your own machine**, once per database. It's a **dry run** unless you pass `--apply`, so you see the whole report before anything is written.
+
+**Before you start:**
+- **Change v1's MongoDB password.** The old one is in v1's git history. If you can, create a separate **read-only** MongoDB user for the import.
+- **Run it on a Neon branch first,** then on production.
+
+**Steps:**
+1. **Migrations first.** The sub-families come from a migration, and the import needs them.
+2. **Seed the first admin** (above), using **their v1 family name and the same email as their v1 profile**. The import then recognizes them and only fills in what the seed left empty: their display name, birthday, photo and v1 ID. It never changes their role or password.
+3. **Settings,** in your local `.env` (never committed):
+   - `DATABASE_URL`: the target database. For Neon, the **direct** (unpooled) URL.
+   - `V1_MONGODB_URI`: v1's connection string, **including the database name** after the host (`mongodb+srv://user:password@host/<database>`). The script refuses one without it.
+   - `CLOUDINARY_CLOUD_NAME`: our Cloudinary account. Photos stored there keep their public ID, so replacing one later deletes the old file. Photos on any other account stay as plain links.
+4. **Dry run:** `uv run --group import python scripts/import_v1.py`. Read the report (below).
+5. **Fix what you can** in v1 (a sub-family spelling, a shared email), and run the dry run again. Anyone still skipped can be added in the app afterwards.
+6. **Import:** `uv run --group import python scripts/import_v1.py --apply`. Running it again later is safe.
+7. **Afterwards,** in the app, an admin:
+   - sets each member's promotion (v1 had none),
+   - promotes social media managers and admins, and sets passwords for new admins,
+   - links the Sanity authors (`PUT /users/{id}/sanity-author`).
+
+   Remove `V1_MONGODB_URI` from your `.env` once you're done.
+
+**Reading the report.** It names people by family name, never by email:
+
+| Line | Meaning |
+|---|---|
+| **Created** | new members |
+| **Filled** | already in v2: only their empty fields were filled |
+| **Already in v2, nothing to change** | imported before; nothing to do |
+| **Skipped** | not imported, with the reason: an invalid field, a family name or email used twice in v1, an unknown sub-family, or a v2 user who has that family name or email but isn't this person |
+| **To check** | imported, but look at it: a missing or odd birthday, or a photo that was left out |
+
+**What it does:**
+- **Everyone arrives as a plain member:** unverified, with no promotion, password, Sanity author or sessions. Each member's first login (code or Google) verifies their email.
+- **Kept from v1:** `name` → display name, `familyName` → family name (with v1's capitals), `email`, `birthday`, `subFam` → sub-family (ignoring case, so "Light" is LIGHT), `profilePic` → photo, and the MongoDB `_id` → `users.legacy_id`. The `_id` also records when v1 created the profile, which becomes `created_at`.
+- **Finding people already in v2:** by `legacy_id` first, so a member imported before is still recognized after an admin renames them or changes their email. Otherwise by family name, but only if the email matches too.
+- **It never overwrites anything.** For someone already in v2 it only fills fields that are still empty, so what members and admins set in v2 always wins.
+- **Duplicates are all skipped.** v2 needs a unique family name and email, and the script can't tell which duplicate is right.
+- **Photos:** links to Cloudinary are kept. Files from v1's own disk (`images/...`) were wiped with it, and links elsewhere are left out.
+- **Birthdays:** v1 stored them as midnight UTC. One stored with a time of day is still imported, but listed under "To check", because the date may be a day off.
+
 ## Setting up Sanity
 
 The backend needs four values from Sanity, set as environment variables on Render (never in the repo):

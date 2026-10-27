@@ -112,7 +112,7 @@ PRs #4, #5 and #6 cover this. `core/config.py` was started in #7, and a fix is i
 | **Dev A: Wishes** | `wishes` model + migration (sender, recipient, year; one per sender/recipient/year) · post, edit and delete wishes with the 30-day window and ownership rules · upcoming birthdays (next 30 days, day/month visibility) |
 | **Dev B: Posts (read side)** | Real `core/sanity.py` client · member reads (list + single post) · the in-memory posts cache (10-minute TTL) · Sanity webhook endpoint with signature check that clears the cache |
 | **Dev C: Posts (write side)** | Create, update and delete posts for social media managers and admins · image uploads to Sanity assets · clearing the cache after every write |
-| **Dev D: v1 import** | `scripts/import_v1.py` (MongoDB → `users`, idempotent) · dry run against a Neon branch · mapping v1 sub-families to the fixed list · a list of imported admins who need passwords |
+| **Dev D: v1 import** | `scripts/import_v1.py` (MongoDB → `users`, idempotent; done: decision 71) · dry run against a Neon branch · mapping v1 sub-families to the fixed list · everyone arrives as a member, and the seeded admin promotes the others |
 
 **Dependencies:**
 - Dev B and Dev C share `posts/`: agree on `posts/schemas.py` and the cache helper first, then split along read and write.
@@ -137,7 +137,7 @@ PRs #4, #5 and #6 cover this. `core/config.py` was started in #7, and a fix is i
 | **Dev A: Infrastructure** | Render free web service from the Docker image · production Neon database (pooled URL for the app, direct URL for migrations) and a Neon branch for staging · production env vars · UptimeRobot monitor on `/health` |
 | **Dev B: Frontend integration** | Work with the frontend team on the `vercel.json` `/api/*` rewrite · verify the login flow end to end **on Safari/iPhone** (the refresh cookie) · keep the OpenAPI docs accurate |
 | **Dev C: Hardening** | Security pass against [Authentication](auth.md): cookie flags, `Origin` check, throttling, no secrets or personal data in logs, `Cache-Control` on authenticated routes · error handling and log levels for production |
-| **Dev D: Data & onboarding** | Run the v1 import on production · help imported admins set passwords · a short "how to log in" note for family members · retire v1 (Render service, MongoDB) once v2 is confirmed |
+| **Dev D: Data & onboarding** | Seed the first admin, then run the v1 import on production · promote admins and social media managers, and help new admins set passwords · a short "how to log in" note for family members · retire v1 (Render service, MongoDB) once v2 is confirmed |
 
 **Decision gate:**
 - **SMTP must be configured in production** (`SMTP_*` and `EMAIL_FROM`). Without it, nobody can log in.

@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # The name of an existing sub-family (they come from a migration); it's never created.
     first_admin_sub_family: str = ""
 
+    # v1's MongoDB (scripts/import_v1.py only). The database name comes from the URI.
+    v1_mongodb_uri: SecretStr = SecretStr("")
+
     # Email over SMTP. Until SMTP_HOST and EMAIL_FROM are set, sending fails clearly.
     # EMAIL_FROM is e.g. "Imena NewsBox <no-reply@example.org>".
     email_from: str = ""
