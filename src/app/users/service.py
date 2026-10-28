@@ -227,7 +227,7 @@ async def confirm_email(db: AsyncSession, user: User, code: str) -> User:
 
 
 async def update_profile(db: AsyncSession, user: User, changes: ProfileUpdate) -> User:
-    """A member changing their own display name or birthday. Commits."""
+    """A member changing their own display name, birthday or bio. Commits."""
     for name, value in changes.model_dump(exclude_unset=True).items():
         setattr(user, name, value)
     await db.commit()

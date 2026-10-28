@@ -18,6 +18,7 @@ PUBLIC_FIELDS = {
     "sub_family",
     "promotion",
     "birthday",
+    "bio",
 }
 
 
@@ -44,6 +45,7 @@ async def test_members_see_each_other_without_private_fields(
         birthday=date(1994, 3, 9),
         promotion_id=promotion.id,
         photo_url="https://media.test/aline.jpg",
+        bio="Loves hiking.",
         role=Role.ADMIN,
         password="secret password",
     )
@@ -64,6 +66,7 @@ async def test_members_see_each_other_without_private_fields(
         "sub_family": {"id": sub_family.id, "name": sub_family.name},
         "promotion": {"id": promotion.id, "name": "Test promotion 2019"},
         "birthday": {"month": 3, "day": 9},
+        "bio": "Loves hiking.",
     }
     assert "1994" not in response.text
     assert other.email not in response.text

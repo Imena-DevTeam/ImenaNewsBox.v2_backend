@@ -18,6 +18,7 @@ ACCOUNT_FIELDS = {
     "sub_family",
     "promotion",
     "birthday",
+    "bio",
     "email",
     "email_verified_at",
     "role",
