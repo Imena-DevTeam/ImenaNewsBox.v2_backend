@@ -12,6 +12,7 @@ from app.core.database.base import Base, TimestampMixin
 
 FAMILY_NAME_MAX_LENGTH: Final = 64
 DISPLAY_NAME_MAX_LENGTH: Final = 100
+BIO_MAX_LENGTH: Final = 500
 EMAIL_MAX_LENGTH: Final = 320
 # Sanity document IDs are at most 128 characters.
 SANITY_ID_MAX_LENGTH: Final = 128
@@ -80,6 +81,8 @@ class User(TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(EMAIL_MAX_LENGTH))
     email_verified_at: Mapped[datetime | None]
     birthday: Mapped[date | None]
+    # A few lines about themselves, written by the member and shown to everyone.
+    bio: Mapped[str | None] = mapped_column(String(BIO_MAX_LENGTH))
 
     role: Mapped[Role] = mapped_column(
         Enum(
