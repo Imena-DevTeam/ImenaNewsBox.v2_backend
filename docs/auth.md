@@ -51,6 +51,8 @@ Body: `{"family_name": "...", "password": "..."}`. Only admins send `password`; 
 
 The 200 is identical in every case, so the endpoint doesn't say which family names exist or who is an admin. A sent password always costs the same Argon2 time. A few answers do only happen for real accounts: the 429 limits (`code_recently_sent`, `too_many_codes`) and an email failure (503 `email_not_sent` / `email_not_configured`). We accept that, because telling a real member what went wrong matters more, and family names aren't secret anyway; the code is what protects the account.
 
+**Password checks are capped.** Anyone can make the server check a password, even for a family name that doesn't exist, so hashing is kept cheap and limited: Argon2id with OWASP's settings (19 MiB, 2 passes), and at most **2 hashes at a time**. Others wait their turn; one that has waited 5 seconds gets 429 `password_check_busy` ("Too many sign-ins at once"), and the user can simply try again. The same cap covers `POST /auth/google` for admins and setting an admin's password.
+
 > **Frontend:** give admins a way to enter their password (for example an "I'm an admin" link that shows the field). An admin who logs in without it gets the normal "code is on its way" answer, but no email.
 
 ### `POST /verify` — step two: the code logs the device in
