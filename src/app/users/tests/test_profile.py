@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from app.users.models import Role, User
+from app.users.models import BIO_MAX_LENGTH, Role, User
 
 MakeUser = Callable[..., Awaitable[User]]
 LoginAs = Callable[[User], Awaitable[dict[str, str]]]
@@ -54,6 +54,60 @@ async def test_your_birthday_can_be_cleared(
     assert response.json()["birthday"] is None
 
 
+async def test_you_write_your_bio(
+    client: AsyncClient, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    user = await make_user()
+    headers = await login_as(user)
+
+    response = await client.patch(
+        ME, json={"bio": "  Second-year student.\r\nLoves football.\n\n "}, headers=headers
+    )
+
+    assert response.status_code == 200
+    # Trimmed, with its line breaks kept (and made the same everywhere).
+    assert response.json()["bio"] == "Second-year student.\nLoves football."
+    # Everyone else sees it, on the profile and in the directory.
+    public = await client.get(f"/api/v1/users/{user.id}", headers=headers)
+    assert public.json()["bio"] == "Second-year student.\nLoves football."
+    directory = await client.get("/api/v1/users", headers=headers)
+    assert directory.json()["items"][0]["bio"] == "Second-year student.\nLoves football."
+
+
+async def test_a_bio_can_use_every_character_it_allows(
+    client: AsyncClient, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    # The limit counts characters, not bytes: accents and emoji count as one each.
+    bio = "é" * (BIO_MAX_LENGTH - 1) + "🎂"
+
+    response = await client.patch(ME, json={"bio": bio}, headers=await login_as(await make_user()))
+
+    assert response.status_code == 200
+    assert response.json()["bio"] == bio
+
+
+@pytest.mark.parametrize("cleared", [None, "", "  \n "], ids=["null", "empty", "blank"])
+async def test_your_bio_can_be_cleared(
+    client: AsyncClient, make_user: MakeUser, login_as: LoginAs, cleared: str | None
+) -> None:
+    user = await make_user(bio="Old bio")
+
+    response = await client.patch(ME, json={"bio": cleared}, headers=await login_as(user))
+
+    assert response.status_code == 200
+    assert response.json()["bio"] is None
+
+
+async def test_changing_other_fields_keeps_your_bio(
+    client: AsyncClient, make_user: MakeUser, login_as: LoginAs
+) -> None:
+    user = await make_user(bio="Kept")
+
+    response = await client.patch(ME, json={"display_name": "New"}, headers=await login_as(user))
+
+    assert response.json()["bio"] == "Kept"
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -84,8 +138,23 @@ async def test_admin_only_fields_are_refused(
         {"display_name": "x" * 101},
         {"birthday": (date.today() + timedelta(days=1)).isoformat()},
         {"birthday": "not-a-date"},
+        {"bio": "x" * (BIO_MAX_LENGTH + 1)},
+        # Postgres can't store a NUL, so it must never get that far.
+        {"bio": "a\u0000b"},
+        {"bio": "a\u0007b"},
+        {"bio": 42},
     ],
-    ids=["null-name", "blank-name", "long-name", "future-birthday", "bad-date"],
+    ids=[
+        "null-name",
+        "blank-name",
+        "long-name",
+        "future-birthday",
+        "bad-date",
+        "long-bio",
+        "nul-in-bio",
+        "control-character-in-bio",
+        "bio-not-text",
+    ],
 )
 async def test_invalid_changes_are_rejected(
     client: AsyncClient, make_user: MakeUser, login_as: LoginAs, body: dict[str, Any]

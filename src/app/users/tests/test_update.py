@@ -55,6 +55,7 @@ async def test_an_admin_changes_a_members_fields(
             "sub_family_id": other_family.id,
             "promotion_id": promotion.id,
             "birthday": "1991-02-03",
+            "bio": "Set by an admin.",
         },
         headers=admin_headers,
     )
@@ -68,6 +69,7 @@ async def test_an_admin_changes_a_members_fields(
     )
     assert body["sub_family"] == {"id": other_family.id, "name": "Another sub-family"}
     assert body["promotion"] == {"id": promotion.id, "name": "Test promotion"}
+    assert body["bio"] == "Set by an admin."
 
 
 async def test_fields_left_out_stay_the_same(
@@ -88,7 +90,7 @@ async def test_fields_left_out_stay_the_same(
     )
 
 
-async def test_promotion_and_birthday_can_be_cleared(
+async def test_promotion_birthday_and_bio_can_be_cleared(
     client: AsyncClient,
     db_session: AsyncSession,
     make_user: MakeUser,
@@ -97,13 +99,18 @@ async def test_promotion_and_birthday_can_be_cleared(
     promotion = Promotion(name="Test promotion", position=1000)
     db_session.add(promotion)
     await db_session.flush()
-    member = await make_user(birthday=date(1990, 1, 1), promotion_id=promotion.id)
-
-    response = await client.patch(
-        f"{USERS}/{member.id}", json={"promotion_id": None, "birthday": None}, headers=admin_headers
+    member = await make_user(
+        birthday=date(1990, 1, 1), promotion_id=promotion.id, bio="Something unkind."
     )
 
-    assert (response.json()["promotion"], response.json()["birthday"]) == (None, None)
+    response = await client.patch(
+        f"{USERS}/{member.id}",
+        json={"promotion_id": None, "birthday": None, "bio": None},
+        headers=admin_headers,
+    )
+
+    body = response.json()
+    assert (body["promotion"], body["birthday"], body["bio"]) == (None, None, None)
 
 
 async def test_a_new_email_must_be_verified_again(

@@ -5,6 +5,7 @@ Users have two separate read schemas, never one with fields hidden on the fly:
 - `UserRead`: the whole account, for the user themselves and for admins.
 """
 
+import unicodedata
 import uuid
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, Final, Self
@@ -24,6 +25,7 @@ from pydantic import (
 from app.auth.schemas import PASSWORD_MAX_LENGTH, Code, FamilyName
 from app.core.pagination import PageParams
 from app.users.models import (
+    BIO_MAX_LENGTH,
     DISPLAY_NAME_MAX_LENGTH,
     EMAIL_MAX_LENGTH,
     SANITY_ID_MAX_LENGTH,
@@ -51,12 +53,24 @@ def _check_birthday(birthday: date) -> date:
     return birthday
 
 
+def _clean_bio(bio: str) -> str | None:
+    """Trim it, keep its line breaks, and turn a blank bio into none at all."""
+    bio = bio.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if any(unicodedata.category(char) == "Cc" and char not in "\n\t" for char in bio):
+        raise ValueError("can't contain control characters")
+    if len(bio) > BIO_MAX_LENGTH:
+        raise ValueError(f"must be at most {BIO_MAX_LENGTH} characters")
+    return bio or None
+
+
 DisplayName = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=DISPLAY_NAME_MAX_LENGTH)
 ]
 # email-validator (with FastAPI) checks the format and lowercases the domain.
 Email = Annotated[EmailStr, AfterValidator(_check_email_length)]
 Birthday = Annotated[date, AfterValidator(_check_birthday)]
+# Several lines are fine. Blank (or only spaces) clears it, like null.
+Bio = Annotated[str, AfterValidator(_clean_bio)]
 
 
 class SubFamilyRead(BaseModel):
@@ -90,6 +104,7 @@ class UserPublicRead(BaseModel):
     sub_family: SubFamilyRead
     promotion: PromotionRead | None
     birthday: MonthDay | None
+    bio: str | None
 
     @field_validator("birthday", mode="before")
     @classmethod
@@ -112,6 +127,7 @@ class UserRead(BaseModel):
     sub_family: SubFamilyRead
     promotion: PromotionRead | None
     birthday: date | None
+    bio: str | None
     email: str
     email_verified_at: datetime | None
     role: Role
@@ -143,8 +159,8 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    """Admins: send only the fields that change. `promotion_id` and `birthday` can be set to
-    null to clear them; the other fields can't be null."""
+    """Admins: send only the fields that change. `promotion_id`, `birthday` and `bio` can be
+    set to null to clear them; the other fields can't be null."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -154,6 +170,7 @@ class UserUpdate(BaseModel):
     sub_family_id: int | None = None
     promotion_id: int | None = None
     birthday: Birthday | None = None
+    bio: Bio | None = None
     role: Role | None = None
 
     @model_validator(mode="after")
@@ -171,13 +188,14 @@ class PasswordSet(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    """What members may change about themselves. Send only what changes; `birthday` can be
-    null to clear it. Everything else is for admins (`UserUpdate`)."""
+    """What members may change about themselves. Send only what changes; `birthday` and
+    `bio` can be null to clear them. Everything else is for admins (`UserUpdate`)."""
 
     model_config = ConfigDict(extra="forbid")
 
     display_name: DisplayName | None = None
     birthday: Birthday | None = None
+    bio: Bio | None = None
 
     @model_validator(mode="after")
     def _display_name_stays_set(self) -> Self:

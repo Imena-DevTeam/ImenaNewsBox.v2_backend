@@ -65,7 +65,7 @@ async def get_me(user: CurrentUser, db: DbSession) -> UserRead:
 
 @router.patch("/me")
 async def update_me(body: ProfileUpdate, user: CurrentUser, db: DbSession) -> UserRead:
-    """Change your own display name or birthday. Admins change everything else."""
+    """Change your own display name, birthday or bio. Admins change everything else."""
     return UserRead.model_validate(await service.update_profile(db, user, body))
 
 
