@@ -1,14 +1,23 @@
+import asyncio
 import hashlib
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import jwt
 import pytest
+from pwdlib import PasswordHash
+from pwdlib.hashers.argon2 import Argon2Hasher
 
+from app.core import security
 from app.core.config import get_settings
+from app.core.exceptions import TooManyRequests
 from app.core.security import (
     CODE_LENGTH,
+    MAX_CONCURRENT_HASHES,
     InvalidToken,
+    PasswordCheckBusy,
     TokenExpired,
     create_access_token,
     decode_access_token,
@@ -60,6 +69,83 @@ async def test_same_password_hashes_differently() -> None:
 
 async def test_missing_hash_never_verifies() -> None:
     assert not await verify_password("anything", None)
+
+
+async def test_new_hashes_use_owasps_lighter_settings() -> None:
+    password_hash = await hash_password("correct horse battery staple")
+
+    assert password_hash.startswith("$argon2id$v=19$m=19456,t=2,p=1$")
+
+
+async def test_hashes_made_with_the_old_settings_still_verify() -> None:
+    # argon2-cffi's defaults (64 MiB), which the first hashes were made with.
+    old_hash = PasswordHash((Argon2Hasher(),)).hash("correct horse battery staple")
+    assert old_hash.startswith("$argon2id$v=19$m=65536,t=3,p=4$")
+
+    assert await verify_password("correct horse battery staple", old_hash)
+    assert not await verify_password("wrong password", old_hash)
+
+
+class _SlowHasher:
+    """Stands in for pwdlib, recording how many hashes run at the same time."""
+
+    def __init__(self, seconds: float) -> None:
+        self.seconds = seconds
+        self.running = 0
+        self.most_at_once = 0
+        self._lock = threading.Lock()
+
+    def hash(self, password: str) -> str:
+        with self._lock:
+            self.running += 1
+            self.most_at_once = max(self.most_at_once, self.running)
+        time.sleep(self.seconds)
+        with self._lock:
+            self.running -= 1
+        return "a hash"
+
+    def verify(self, password: str, password_hash: str) -> bool:
+        self.hash(password)
+        return False
+
+
+@pytest.fixture
+def slow_hasher(monkeypatch: pytest.MonkeyPatch) -> _SlowHasher:
+    hasher = _SlowHasher(seconds=0.05)
+    monkeypatch.setattr(security, "_password_hash", hasher)
+    return hasher
+
+
+async def test_only_a_few_hashes_run_at_once(slow_hasher: _SlowHasher) -> None:
+    # Hashing, checking real hashes and the dummy check for unknown users all share the slots.
+    await asyncio.gather(
+        *(hash_password("p") for _ in range(4)),
+        *(verify_password("p", "a hash") for _ in range(2)),
+        *(verify_password("p", None) for _ in range(2)),
+    )
+
+    assert slow_hasher.most_at_once == MAX_CONCURRENT_HASHES
+
+
+async def test_a_check_that_waits_too_long_is_refused(
+    slow_hasher: _SlowHasher, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    slow_hasher.seconds = 0.3
+    monkeypatch.setattr(security, "HASH_WAIT_SECONDS", 0.05)
+
+    results = await asyncio.gather(
+        *(verify_password("p", None) for _ in range(MAX_CONCURRENT_HASHES + 1)),
+        return_exceptions=True,
+    )
+
+    assert results.count(False) == MAX_CONCURRENT_HASHES
+    [refused] = [result for result in results if isinstance(result, BaseException)]
+    assert isinstance(refused, PasswordCheckBusy)
+    # A 429, so the frontend can ask the user to try again.
+    assert isinstance(refused, TooManyRequests)
+
+    # Once the others finish, the slots are free again.
+    assert await verify_password("p", None) is False
 
 
 # --- Access tokens ---

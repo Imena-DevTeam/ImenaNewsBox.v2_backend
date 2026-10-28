@@ -12,7 +12,7 @@ Backend API for Imena NewsBox, a private family platform for member profiles, bi
 
 - Python 3.14, **uv** (`pyproject.toml` + `uv.lock`), FastAPI, Pydantic v2, pydantic-settings
 - **Neon** Postgres via **async** SQLAlchemy 2.x and Alembic (async `env.py`). The dependency is `sqlalchemy[asyncio]`, because 2.1 no longer installs `greenlet` by default. Use `AsyncSession`, `create_async_engine` and `postgresql+psycopg://` (psycopg 3).
-- Auth (`core/security.py`): PyJWT access tokens (`ACCESS_TOKEN_SECRET`), opaque random refresh tokens stored as an HMAC (`REFRESH_TOKEN_SECRET`), 6-digit codes stored as an HMAC (`CODE_SECRET`), and pwdlib[argon2] for admin passwords (async, run in a thread)
+- Auth (`core/security.py`): PyJWT access tokens (`ACCESS_TOKEN_SECRET`), opaque random refresh tokens stored as an HMAC (`REFRESH_TOKEN_SECRET`), 6-digit codes stored as an HMAC (`CODE_SECRET`), and pwdlib[argon2] for admin passwords (Argon2id with OWASP's 19 MiB settings, run in a thread, at most 2 at once; a check that waits over 5 s gets 429 `password_check_busy`)
 - Background work: FastAPI `BackgroundTasks` only, for fire-and-forget cleanup. **No Celery, no Redis, no scheduler.**
 - Caching: `cachetools`, in-process (see "Caching")
 - External services:
