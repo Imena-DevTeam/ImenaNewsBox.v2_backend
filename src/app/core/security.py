@@ -1,7 +1,8 @@
 """Passwords, access tokens, refresh tokens and email codes.
 
-- **Passwords** (admins only) are hashed with Argon2. Hashing is deliberately slow, so it runs
-  in a worker thread instead of blocking the event loop.
+- **Passwords** (admins only) are hashed with Argon2id. Hashing is deliberately slow and uses
+  memory, so it runs in a worker thread instead of blocking the event loop, and only a couple
+  of hashes run at once.
 - **Access tokens** are short-lived JWTs (HS256, `ACCESS_TOKEN_SECRET`). They only say who the
   user is and which session issued them; the role is always read from the database.
 - **Refresh tokens** are opaque random strings, not JWTs. Only their HMAC (keyed by
@@ -13,14 +14,17 @@
 Settings are read inside each function, never at import time.
 """
 
+import asyncio
 import hashlib
 import hmac
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import cache
 from typing import Final
 from uuid import UUID
+from weakref import WeakKeyDictionary
 
 import jwt
 from pwdlib import PasswordHash
@@ -28,7 +32,7 @@ from pwdlib.hashers.argon2 import Argon2Hasher
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
-from app.core.exceptions import Unauthorized
+from app.core.exceptions import TooManyRequests, Unauthorized
 
 JWT_ALGORITHM: Final = "HS256"
 ACCESS_TOKEN_TYPE: Final = "access"
@@ -36,7 +40,23 @@ CODE_LENGTH: Final = 6
 CODE_TTL: Final = timedelta(minutes=10)
 REFRESH_TOKEN_BYTES: Final = 32
 
-_password_hash = PasswordHash((Argon2Hasher(),))
+# OWASP's recommended Argon2id settings (19 MiB, 2 passes, 1 lane), instead of argon2-cffi's
+# default of 64 MiB. Each hash records its own settings, so older hashes still verify.
+_password_hash = PasswordHash((Argon2Hasher(time_cost=2, memory_cost=19 * 1024, parallelism=1),))
+# Login checks a password even for unknown users (to keep the timing equal), so anyone can make
+# the server hash. At most this many hashes run at once, which caps their memory at about
+# 40 MiB. The others wait their turn, for up to this many seconds each.
+MAX_CONCURRENT_HASHES: Final = 2
+HASH_WAIT_SECONDS: Final = 5.0
+
+# One semaphore per event loop: an asyncio semaphore can't be shared between loops, and each
+# test runs in its own.
+_hash_slots: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = WeakKeyDictionary()
+
+
+class PasswordCheckBusy(TooManyRequests):
+    code = "password_check_busy"
+    default_message = "Too many sign-ins at once. Try again in a moment."
 
 
 class InvalidToken(Unauthorized):
@@ -55,17 +75,42 @@ class TokenExpired(Unauthorized):
 
 
 async def hash_password(password: str) -> str:
-    return await run_in_threadpool(_password_hash.hash, password)
+    """Raises `PasswordCheckBusy` if too many hashes are already waiting."""
+    return await _hashing(_password_hash.hash, password)
 
 
 async def verify_password(password: str, password_hash: str | None) -> bool:
     """Check a password. With no hash (unknown user, or not an admin), still spend the same
     time on a dummy hash and return False, so response times don't reveal which users exist.
+    Raises `PasswordCheckBusy` if too many hashes are already waiting.
     """
     if password_hash is None:
-        await run_in_threadpool(_password_hash.verify, password, _dummy_password_hash())
+        await _hashing(_verify_dummy, password)
         return False
-    return await run_in_threadpool(_password_hash.verify, password, password_hash)
+    return await _hashing(_password_hash.verify, password, password_hash)
+
+
+async def _hashing[T](function: Callable[..., T], *args: str) -> T:
+    """Run an Argon2 call in a worker thread, at most `MAX_CONCURRENT_HASHES` at a time."""
+    loop = asyncio.get_running_loop()
+    slots = _hash_slots.get(loop)
+    if slots is None:
+        slots = _hash_slots[loop] = asyncio.Semaphore(MAX_CONCURRENT_HASHES)
+    try:
+        async with asyncio.timeout(HASH_WAIT_SECONDS):
+            await slots.acquire()
+    except TimeoutError:
+        raise PasswordCheckBusy() from None
+    try:
+        return await run_in_threadpool(function, *args)
+    finally:
+        slots.release()
+
+
+def _verify_dummy(password: str) -> bool:
+    # Runs in the worker thread, so making the dummy hash the first time never blocks the
+    # event loop.
+    return _password_hash.verify(password, _dummy_password_hash())
 
 
 @cache
