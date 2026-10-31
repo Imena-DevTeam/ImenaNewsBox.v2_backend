@@ -403,7 +403,7 @@ New feature work? Fill in the feature's files, register its router in `main.py`,
 - **Use separate input and output schemas** (`UserCreate` vs `UserRead`).
 - **No blocking calls inside `async def`.** Don't use `requests`, `time.sleep` or sync database drivers there. Use `httpx`, `await asyncio.sleep` and async libraries. For unavoidable blocking calls (such as the Cloudinary SDK), use `run_in_threadpool`. There are no background workers (free tier), so fire-and-forget work uses FastAPI `BackgroundTasks`.
 - **Use dependency injection** (`Depends`) for the database session, the current user and shared logic.
-- **No hardcoded config.** Everything configurable goes through `src/app/core/config.py` and environment variables, and every new variable goes into `.env.example`.
+- **No hardcoded config.** Everything configurable goes through `src/app/core/config.py` and environment variables, and every new variable goes into `.env.example`. `tests/test_env_example.py` checks that it lists every setting and every variable `docker-compose.yml` reads, and that your local `.env` has the same variables in the same order.
 - **Use proper HTTP errors.** Services raise feature exceptions, which `core/exceptions.py` maps to the right status code. Never return a 200 with an error message.
 - **Routers stay thin.** No business logic or database queries in `router.py`; those belong in `service.py`.
 - **Use the `logging` module,** not `print`.
