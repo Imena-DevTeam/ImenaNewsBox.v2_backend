@@ -1,11 +1,15 @@
 """Application settings, read from environment variables (and `.env` locally)."""
 
+import re
 from email.utils import parseaddr
 from functools import lru_cache
-from typing import Annotated, Literal, Self
+from typing import Annotated, Final, Literal, Self
 
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# A scheme and host (and optional port), with nothing after them.
+_ORIGIN: Final = re.compile(r"https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?")
 
 
 class Settings(BaseSettings):
@@ -17,6 +21,9 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
     # Comma-separated in the environment, e.g. "http://localhost:3000,https://example.com".
     cors_origins: Annotated[list[str], NoDecode] = []
+    # The frontend's address, e.g. "https://example.org": invitation links point there.
+    # Empty means no invitation can be sent.
+    frontend_url: str = ""
 
     # Database: pooled URL for the app, direct URL for Alembic.
     database_url: str
@@ -84,6 +91,16 @@ class Settings(BaseSettings):
             raise ValueError("CORS_ORIGINS must list explicit origins, never '*'")
         return value
 
+    @field_validator("frontend_url")
+    @classmethod
+    def _check_frontend_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if value and not _ORIGIN.fullmatch(value):
+            raise ValueError(
+                'FRONTEND_URL must be the frontend\'s address with no path, e.g. "https://example.org"'
+            )
+        return value
+
     @field_validator("email_from")
     @classmethod
     def _check_email_from(cls, value: str) -> str:
@@ -110,6 +127,13 @@ class Settings(BaseSettings):
             for name in ("access_token_secret", "refresh_token_secret", "code_secret"):
                 if len(getattr(self, name).get_secret_value()) < 32:
                     raise ValueError(f"{name} must be at least 32 characters in production")
+        return self
+
+    @model_validator(mode="after")
+    def _https_links_in_production(self) -> Self:
+        # An invitation link carries a token that sets an admin's password.
+        if self.environment == "production" and self.frontend_url.startswith("http://"):
+            raise ValueError("FRONTEND_URL must use https:// in production")
         return self
 
 

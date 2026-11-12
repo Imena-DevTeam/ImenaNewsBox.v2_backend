@@ -18,6 +18,9 @@ from app.auth.schemas import (
     AccessToken,
     CodeSent,
     GoogleLoginRequest,
+    InvitationAccept,
+    InvitationCheck,
+    InvitationRead,
     LoginRequest,
     SessionListParams,
     SessionRead,
@@ -102,6 +105,30 @@ async def google(
         device_label=service.describe_device(request.headers.get("user-agent")),
     )
     return _signed_in(response, signed_in)
+
+
+@router.post("/invitations/check")
+async def check_invitation(body: InvitationCheck, db: DbSession) -> InvitationRead:
+    """Who an invitation link is for, and whether accepting it needs a password (admins).
+    Changes nothing. A POST, so the token never appears in a URL."""
+    user = await service.check_invitation(db, body.token.get_secret_value())
+    return InvitationRead(
+        family_name=user.family_name,
+        display_name=user.display_name,
+        needs_password=service.sets_password(user),
+    )
+
+
+@router.post("/invitations/accept", status_code=HTTPStatus.NO_CONTENT)
+async def accept_invitation(body: InvitationAccept, db: DbSession) -> None:
+    """Accept an invitation: it confirms the email address, and admins set their password
+    (at least 8 characters). The link then stops working. It doesn't log in; the user logs
+    in afterwards as usual."""
+    await service.accept_invitation(
+        db,
+        body.token.get_secret_value(),
+        password=body.password.get_secret_value() if body.password else None,
+    )
 
 
 @router.post("/refresh", dependencies=[Depends(require_allowed_origin)])

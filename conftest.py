@@ -23,6 +23,7 @@ from sqlalchemy import create_engine, make_url, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.auth import service as auth_service
 from app.auth.service import create_session
 from app.core.config import get_settings
 from app.core.database.session import get_session
@@ -34,6 +35,8 @@ from app.core.sanity import get_sanity
 from app.core.security import create_access_token, hash_password
 from app.main import app
 from app.users.models import Role, SubFamily, User
+
+FRONTEND_URL = "https://newsbox.example"
 
 if sys.platform == "win32":
     # psycopg's async mode can't run on Windows' default (Proactor) event loop.
@@ -151,6 +154,15 @@ def login_as(db_session: AsyncSession) -> Callable[[User], Awaitable[dict[str, s
 
 
 @pytest.fixture
+def frontend_url(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Invitation links point here in every test, whatever FRONTEND_URL says locally or in
+    CI. The `client` fixture always uses it; service tests ask for it."""
+    settings = get_settings().model_copy(update={"frontend_url": FRONTEND_URL})
+    monkeypatch.setattr(auth_service, "get_settings", lambda: settings)
+    return FRONTEND_URL
+
+
+@pytest.fixture
 def fake_email() -> FakeEmailSender:
     return FakeEmailSender()
 
@@ -177,6 +189,7 @@ async def client(
     fake_media: FakeMediaStore,
     fake_sanity: FakeSanity,
     fake_google: FakeGoogleVerifier,
+    frontend_url: str,
 ) -> AsyncIterator[AsyncClient]:
     """An HTTP client for the app. Every request uses the test's session and the fakes above,
     so no test reaches a real email provider, Cloudinary, Sanity or Google."""

@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 
 from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_owner_or_admin
@@ -16,21 +17,34 @@ from app.auth.exceptions import (
     GoogleAccountNotRegistered,
     InvalidCode,
     InvalidCredentials,
+    InvalidInvitation,
+    InvitationsNotConfigured,
+    PasswordRequired,
     RefreshConflict,
     SessionEnded,
     SessionNotFound,
     TooManyCodes,
 )
-from app.auth.models import DEVICE_LABEL_MAX_LENGTH, EmailCode, UserSession
+from app.auth.models import DEVICE_LABEL_MAX_LENGTH, EmailCode, Invitation, UserSession
 from app.core.config import get_settings
-from app.core.email import CodePurpose, EmailSender, send_code
+from app.core.email import (
+    CodePurpose,
+    EmailSender,
+    build_invitation_email,
+    send_code,
+    send_email,
+)
 from app.core.google import GoogleVerifier
 from app.core.security import (
     CODE_TTL,
+    INVITATION_TTL,
     create_access_token,
     generate_code,
+    generate_invitation_token,
     generate_refresh_token,
     hash_code,
+    hash_invitation_token,
+    hash_password,
     hash_refresh_token,
     verify_code,
     verify_password,
@@ -51,6 +65,12 @@ CODES_PER_DAY: Final = 10
 CODE_LIMIT_WINDOW: Final = timedelta(days=1)
 # Revoked or expired sessions are deleted this long afterwards (see `delete_stale_rows`).
 ENDED_SESSION_RETENTION: Final = timedelta(days=7)
+# Between two manual resends (`users.service.invite_user`): stops a double click from
+# sending two links, the first of which would no longer work.
+INVITATION_RESEND_COOLDOWN: Final = timedelta(seconds=60)
+# The frontend page that invitation links open. The token goes after `#`, which browsers
+# never send to a server, so it stays out of the frontend host's logs.
+INVITATION_PAGE: Final = "/invitation"
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +177,110 @@ async def consume_code(db: AsyncSession, user: User, purpose: CodePurpose, code:
     await db.flush()
 
 
+# --- Invitations ---
+
+
+def sets_password(user: User) -> bool:
+    """Whether accepting this user's invitation also sets their password: admins only."""
+    return user.role.at_least(Role.ADMIN)
+
+
+async def send_invitation(db: AsyncSession, sender: EmailSender, user: User) -> None:
+    """Email the user a new invitation link, which replaces any earlier one. Commits.
+
+    Members accept it to confirm their email address; admins also choose their password
+    with it. So it's also what a promoted admin, or one who forgot their password, receives.
+
+    The email goes out first and the link is saved after, so a failed send changes nothing
+    (an earlier link keeps working). Raises `InvitationsNotConfigured`, `EmailNotSent` or
+    `EmailNotConfigured`. There's no cooldown here: an admin who fixes a mistyped address
+    right after adding someone must reach the new one. `users.service.invite_user`, the
+    manual resend, has one.
+    """
+    frontend_url = get_settings().frontend_url
+    if not frontend_url:
+        raise InvitationsNotConfigured()
+    now = datetime.now(UTC)
+    token = generate_invitation_token()
+    message = build_invitation_email(
+        to=user.email,
+        display_name=user.display_name,
+        family_name=user.family_name,
+        link=f"{frontend_url}{INVITATION_PAGE}#token={token}",
+        sets_password=sets_password(user),
+        days=INVITATION_TTL.days,
+    )
+    await send_email(sender, message, kind="invitation")
+
+    values = {
+        "token_hash": hash_invitation_token(token),
+        "created_at": now,
+        "expires_at": now + INVITATION_TTL,
+    }
+    await db.execute(
+        insert(Invitation)
+        .values(user_id=user.id, **values)
+        .on_conflict_do_update(index_elements=[Invitation.user_id], set_=values)
+    )
+    user.invited_at = now
+    await db.commit()
+
+
+async def cancel_invitation(db: AsyncSession, user_id: uuid.UUID) -> bool:
+    """Make the user's invitation link stop working. Returns whether there was one. Doesn't
+    commit."""
+    deleted = await db.scalar(
+        delete(Invitation).where(Invitation.user_id == user_id).returning(Invitation.user_id)
+    )
+    return deleted is not None
+
+
+async def _find_invitation(
+    db: AsyncSession, token: str, *, lock: bool = False
+) -> tuple[Invitation, User]:
+    statement = (
+        select(Invitation, User)
+        .join(User, Invitation.user_id == User.id)
+        .where(Invitation.token_hash == hash_invitation_token(token))
+        .execution_options(populate_existing=True)
+    )
+    if lock:
+        # So the link can't be used twice at the same moment.
+        statement = statement.with_for_update(of=Invitation)
+    row = (await db.execute(statement)).first()
+    if row is None:
+        raise InvalidInvitation()
+    invitation, user = row
+    if invitation.expires_at <= datetime.now(UTC) or not user.is_active:
+        raise InvalidInvitation()
+    return invitation, user
+
+
+async def check_invitation(db: AsyncSession, token: str) -> User:
+    """The user a working invitation link belongs to, for the page to greet them. Changes
+    nothing. Raises `InvalidInvitation`."""
+    _, user = await _find_invitation(db, token)
+    return user
+
+
+async def accept_invitation(db: AsyncSession, token: str, *, password: str | None) -> User:
+    """Use an invitation link: it confirms the email address it was sent to, and admins'
+    password is set from `password` (required for them, ignored for members). The link then
+    stops working. It doesn't log anyone in: they log in as usual afterwards. Commits.
+
+    Raises `InvalidInvitation` or `PasswordRequired`.
+    """
+    invitation, user = await _find_invitation(db, token, lock=True)
+    if sets_password(user):
+        if password is None:
+            raise PasswordRequired()
+        user.password_hash = await hash_password(password)
+    mark_email_verified(user)
+    await db.delete(invitation)
+    await db.commit()
+    return user
+
+
 # --- Logging in ---
 
 
@@ -234,7 +358,8 @@ async def start_session(db: AsyncSession, user: User, *, device_label: str) -> S
 
 
 def mark_email_verified(user: User) -> None:
-    """A code (or Google) reached this address, so it's real. Keeps the first time."""
+    """A code, an invitation link (or Google) reached this address, so it's real. Keeps the
+    first time."""
     if user.email_verified_at is None:
         user.email_verified_at = datetime.now(UTC)
 
