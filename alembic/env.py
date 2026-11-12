@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Every feature's models must be imported here, or autogenerate won't see their tables.
 import app.auth.models
+import app.resources.models
 import app.users.models
 import app.wishes.models  # noqa: F401
 from app.core.config import get_settings

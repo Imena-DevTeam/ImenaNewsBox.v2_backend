@@ -380,7 +380,7 @@ Code is organized **by feature**. [docs/architecture.md](docs/architecture.md) e
 src/app/
 ├── main.py          # app creation, middleware, routers
 ├── core/            # shared: config, db, security, exceptions, email/Cloudinary/Sanity wrappers
-└── <feature>/       # auth, users, wishes, posts
+└── <feature>/       # auth, users, wishes, posts, resources
     ├── router.py    # endpoints (thin: no business logic)
     ├── schemas.py   # Pydantic models (API shape)
     ├── models.py    # SQLAlchemy models (database shape)

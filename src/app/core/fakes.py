@@ -6,13 +6,13 @@ no test can reach a real external service. Tests get the same instances from the
 """
 
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.email import EmailDeliveryError, EmailMessage
 from app.core.google import GoogleIdentity, GoogleUnavailable, InvalidGoogleToken
-from app.core.media import MediaUnavailable, UploadedImage, check_image
+from app.core.media import MediaUnavailable, UploadedImage, check_document, check_image
 from app.core.sanity import SanityUnavailable
 
 _CODE = re.compile(r"\b(\d{6})\b")
@@ -57,6 +57,35 @@ class FakeMediaStore:
     uploads: dict[str, bytes] = field(default_factory=dict)
     deleted: list[str] = field(default_factory=list)
     fail_uploads: bool = False
+    # Private documents, by public ID; `deleted_documents` records deletes.
+    documents: dict[str, bytes] = field(default_factory=dict)
+    deleted_documents: list[str] = field(default_factory=list)
+    fail_downloads: bool = False
+
+    async def upload_document(self, data: bytes) -> str:
+        check_document(data)
+        if self.fail_uploads:
+            raise MediaUnavailable()
+        public_id = f"test/family-resources/{len(self.documents) + 1}"
+        self.documents[public_id] = data
+        return public_id
+
+    async def open_document(self, public_id: str) -> AsyncGenerator[bytes]:
+        if self.fail_downloads or public_id not in self.documents:
+            raise MediaUnavailable()
+        data = self.documents[public_id]
+
+        async def chunks() -> AsyncGenerator[bytes]:
+            # In two pieces, like a real download that arrives in chunks.
+            middle = len(data) // 2
+            yield data[:middle]
+            yield data[middle:]
+
+        return chunks()
+
+    async def delete_document(self, public_id: str) -> None:
+        self.deleted_documents.append(public_id)
+        self.documents.pop(public_id, None)
 
     async def upload_profile_photo(self, data: bytes) -> UploadedImage:
         check_image(data)

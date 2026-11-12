@@ -17,6 +17,7 @@ from app.core.config import Settings, get_settings
 from app.core.database.session import dispose_engine
 from app.core.exceptions import NO_STORE, register_exception_handlers
 from app.posts.router import router as posts_router
+from app.resources.router import router as resources_router
 from app.users.router import router as users_router
 from app.wishes.router import router as wishes_router
 
@@ -75,7 +76,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     api = APIRouter(prefix="/api/v1")
-    for router in (auth_router, users_router, wishes_router, posts_router):
+    for router in (auth_router, users_router, wishes_router, posts_router, resources_router):
         api.include_router(router)
     app.include_router(api)
 

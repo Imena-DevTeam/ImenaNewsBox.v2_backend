@@ -22,7 +22,7 @@ Imena NewsBox is a **private family platform**. Admins register family members, 
 - **API:** Python 3.14, FastAPI, Pydantic v2, async SQLAlchemy 2.x, Alembic. Managed with **uv**.
 - **Database:** Postgres on **Neon** (free tier).
 - **Hosting:** one Docker container on **Render** (free tier). The Next.js frontend is on **Vercel**.
-- **External services:** **Sanity** (blog content), **Cloudinary** (profile photos), and an SMTP server for email.
+- **External services:** **Sanity** (blog content), **Cloudinary** (profile photos and the family's PDF documents), and an SMTP server for email.
 - **Hard rule:** everything must run on free tiers.
 
 ## Open decisions
