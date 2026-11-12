@@ -10,7 +10,6 @@ from app.core.email import (
     EmailNotSent,
     NotConfiguredEmailSender,
     build_code_email,
-    get_email_sender,
     send_code,
 )
 from app.core.fakes import FakeEmailSender
@@ -87,9 +86,11 @@ async def test_failures_never_log_the_address_or_code(caplog: pytest.LogCaptureF
 
 
 async def test_without_a_provider_sending_fails_clearly_and_is_not_retried() -> None:
-    assert isinstance(get_email_sender(), NotConfiguredEmailSender)
-
+    # Which sender `get_email_sender` picks is tested in test_smtp.py, with pinned settings:
+    # this test mustn't depend on whether SMTP is set up in a local .env.
     with pytest.raises(EmailNotConfigured) as exc_info:
-        await send_code(get_email_sender(), to=ADDRESS, code=CODE, purpose=CodePurpose.LOGIN)
+        await send_code(
+            NotConfiguredEmailSender(), to=ADDRESS, code=CODE, purpose=CodePurpose.LOGIN
+        )
 
     assert exc_info.value.code == "email_not_configured"
