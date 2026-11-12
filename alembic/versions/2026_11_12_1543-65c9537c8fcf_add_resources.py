@@ -1,7 +1,7 @@
 """add resources
 
 Revision ID: 65c9537c8fcf
-Revises: 980cedaf1a68
+Revises: 72e69714f312
 Create Date: 2026-11-12 15:43:46.365738
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "65c9537c8fcf"
-down_revision: str | Sequence[str] | None = "980cedaf1a68"
+down_revision: str | Sequence[str] | None = "72e69714f312"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
