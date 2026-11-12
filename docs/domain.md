@@ -200,6 +200,36 @@ Profile photos are stored in **Cloudinary**: images up to 5 MB. We store the Clo
 
 The order matters: the new photo is uploaded and saved **before** the old one is deleted, so a failed upload never leaves a member without their photo. If the old delete is lost, Cloudinary just keeps an unused image. Cloudinary stores every photo as a JPEG of at most 1024 px a side, so HEIC photos from iPhones show in every browser.
 
+## Family resources
+
+The family's shared **PDF documents** (charters, audits, guides, gazettes), for the frontend's Resources page. Every member reads them; **social media managers and admins** upload, change, replace and delete them, **whoever uploaded them** (there's no ownership rule here).
+
+- **PDFs only,** at most **10 MB** (Cloudinary's free limit for such files), recognized by their content, never their name or content type.
+- **Fixed categories:** `documents`, `guides`, `family_resources`, `educational_materials`. The frontend shows its own labels; changing the list takes a PR and a migration.
+- **Featured:** any document can be featured, for the page's spotlight.
+- **No view counts:** counting would make a GET change data.
+- **Storage:** the file is a **private** Cloudinary asset (an `authenticated` raw file), which Cloudinary serves only through a signed URL. That URL never leaves the server: the API downloads the file and streams it to the member, so a document can't be shared outside the family by passing a link around, and deactivation or a logout takes effect at once. The table keeps the title, description, category, featured flag, file name and size, the Cloudinary ID, and who uploaded it.
+- **File names** come from the uploaded file, cleaned of folders, control characters (including the ones that reverse text) and path characters, and always end in `.pdf`.
+- **Order of operations:** like photos, the new file is uploaded and saved **before** an old one is deleted, so a failed upload never loses a document. Replaced and deleted files are removed from Cloudinary in the background; a lost delete only leaves an unreachable file behind.
+
+### Resources API
+
+All under `/api/v1/resources`, and all need an access token.
+
+| Endpoint | Who | Returns |
+|---|---|---|
+| `GET /` | any member | documents, newest first, paginated, as `ResourceRead`. `?category=` keeps one category, `?featured=true` (or `false`) only featured documents (or the others) |
+| `GET /{id}` | any member | one document's details; 404 `resource_not_found` |
+| `GET /{id}/file` | any member | the PDF (`application/pdf`), shown in the browser; `?download=true` asks it to save the file instead. The name is in `Content-Disposition`, in full UTF-8. 502 `media_unavailable` if Cloudinary can't serve it |
+| `POST /` | social media managers, admins | uploads a document (201, `ResourceRead`), as `multipart/form-data`: `file` (the PDF), `title` (1 to 200 characters), `category`, and optionally `description` (up to 2000; blank means none) and `featured`. Errors: 400 `unsupported_document`, 413 `document_too_large`, 502 `media_unavailable`, 422 for anything else wrong, including an unexpected field |
+| `PATCH /{id}` | social media managers, admins | changes `title`, `description` (null or blank clears it), `category` or `featured`; send only what changes. Returns `ResourceRead` |
+| `PUT /{id}/file` | social media managers, admins | replaces the PDF (multipart field `file`), keeping the details; the new file's name and size replace the old ones. Same errors as uploading |
+| `DELETE /{id}` | social media managers, admins | deletes the document (204), then its file |
+
+`ResourceRead` is `{id, title, description, category, featured, file_name, file_size (bytes), uploaded_by: {id, display_name}, created_at (when it was published), updated_at}`. The Cloudinary ID is never in a response.
+
+> **Frontend:** the file needs the `Authorization` header like every other call, so a plain link or `<iframe src>` can't load it. Fetch it, make a blob URL (`URL.createObjectURL`) and show that in the PDF viewer, or use it as an `<a download>` link. Map the categories to the page's labels ("Family Resources" is `family_resources`).
+
 ## Data imported from v1
 
 v1's MongoDB profiles are imported into `users` by a one-off script (`scripts/import_v1.py`). [Infrastructure](infrastructure.md#importing-v1s-members) has the steps.

@@ -35,7 +35,7 @@ v1's only background job was a nightly wish purge, which v2 drops. The remaining
 **9. Email over an HTTP API: Resend or the Gmail API (open).** *Replaced by 68.*
 Render free blocks SMTP, so v1's Gmail SMTP approach can't work. Resend needs a verified domain; the Gmail API is free with no domain but needs a one-time OAuth setup. The choice is open. All email goes through `core/email.py`, so switching later is easy.
 
-**10. Sanity for the blog; Cloudinary only for profile photos.**
+**10. Sanity for the blog; Cloudinary only for profile photos.** *Cloudinary now also holds the family's documents: see 75.*
 Sanity handles rich content and images well. Cloudinary was already used in v1 for profile photos.
 
 ## Users and access
@@ -239,3 +239,6 @@ The family asked (2026-11-12) that adding someone email them an invitation that 
 
 **74. Admins choose their own passwords, of at least 8 characters.**
 `PUT /users/{id}/password`, where one admin set another's password, is gone: the admin who set it knew it. Instead, an admin's invitation link asks them to choose one, and the same link is emailed when someone is promoted to admin. Any admin can be sent a new link at any time, which is how a forgotten password is reset; their sessions stay as they are, since the password is only checked when a new device logs in. The family set the minimum at 8 characters (it was 12), which is also what NIST's guidance asks for when the password is one factor of two: an admin always also needs an emailed code or Google. The first admin's seed follows the same minimum.
+
+**75. Family documents are private PDFs on Cloudinary, streamed through the API.**
+v1 never had shared documents; the frontend's Resources page asked for them, and the family chose (2026-11-12) Cloudinary storage, PDFs only, a fixed list of categories, no view counts, and that any social media manager or admin may change or delete any document. Cloudinary needed no new account, code or test fake, and keeps files safe whatever happens to the VPS. The VPS's own disk would have needed volumes and backups, and Cloudflare R2 needs a payment card on file. The files are family records, so unlike photos they're never public: they're uploaded as `authenticated` raw files, which Cloudinary only serves through a signed URL, and that URL never leaves the server. The API checks the login and streams the file, so a link can't leak a document, and deactivation or a revoked session takes effect immediately. Every download costs the server bandwidth, which is fine at family scale. The free plan limits raw files to 10 MB, so that's our limit too. Categories are a fixed enum, like roles, because the page is designed around them. A view count would make a GET change data, so it was dropped. Documents are the family's, not the uploader's, so the role alone decides who may edit them, unlike wishes.

@@ -15,7 +15,7 @@ flowchart LR
     UR[UptimeRobot] -->|"GET /health<br/>every 5 min"| R
     R --> N[("Neon (free)<br/>Postgres")]
     R --> S["Sanity<br/>blog content"]
-    R --> C["Cloudinary<br/>profile photos"]
+    R --> C["Cloudinary<br/>profile photos,<br/>family documents"]
     R --> M["SMTP server<br/>(email)"]
     S -->|webhook| R
 ```
@@ -27,7 +27,7 @@ flowchart LR
 | Database | Neon free | Scales to zero when idle |
 | Keep-awake | UptimeRobot | Pings `/health` every 5 minutes so Render doesn't put the app to sleep |
 | Blog | Sanity | Private dataset; only our backend talks to it |
-| Photos | Cloudinary | Profile photos only |
+| Files | Cloudinary | Profile photos (public) and the family's PDF documents (private, served only through the API). Free plan: 25 credits a month, 10 MB per document. Free accounts block PDF delivery by default: if downloads fail with 502 `media_unavailable` (the log shows Cloudinary's status), turn on **Settings → Security → "Allow delivery of PDF and ZIP files"** |
 | Email | SMTP server | Plain SMTP with STARTTLS or TLS, sent with `aiosmtplib`; server and account to be chosen by the team |
 
 ## Free-tier limits we design around
@@ -45,7 +45,7 @@ There are no workers. The little background work we have is handled like this:
 | Task | How |
 |---|---|
 | Sending login codes | During the request, with a short timeout and one retry |
-| Deleting a replaced profile photo from Cloudinary | FastAPI `BackgroundTasks` (if it's ever lost, an unused image is left behind; that's harmless) |
+| Deleting a replaced profile photo, or a replaced or deleted document, from Cloudinary | FastAPI `BackgroundTasks` (if it's ever lost, an unused file is left behind; that's harmless) |
 | Cleaning up expired codes and sessions | Expired rows are ignored by their expiry time, and old rows are deleted during login. No scheduler needed. |
 
 When a real scheduled feature arrives (e.g. birthday emails), a **scheduled GitHub Actions workflow** will call a protected endpoint. That's free, and it also wakes the app.
