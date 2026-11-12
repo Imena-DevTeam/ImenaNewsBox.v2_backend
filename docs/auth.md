@@ -9,7 +9,7 @@ In v2, **each new device has to prove itself once**, and after that it stays log
 - **Members and social media managers:** family name, then a **6-digit code emailed** to their address, **or "Sign in with Google"** with the Google account that uses that address.
 - **Admins:** their **password** plus a second proof: either family name + password, then an emailed code, or password + Google (the Google account already says who they are, so no family name is needed).
 
-Google proves the same thing a code does (that the person owns the email address), so it's an alternative to the code, never a way around it. It works on a first login too, and like a first code it marks the email as verified. No login method ever creates an account: admins register every member.
+Google proves the same thing a code does (that the person owns the email address), so it's an alternative to the code, never a way around it. It works on a first login too, and like a first code it marks the email as verified. No login method ever creates an account: admins register every member, and each new member is emailed an invitation link first (see [Invitations](#invitations)).
 
 After that, the device holds a long-lived **refresh token** and doesn't have to log in again for up to 90 days of inactivity. Someone who knows your family name but not your inbox (or password) can't get in from their own device.
 
@@ -36,7 +36,7 @@ sequenceDiagram
 
 ## Endpoints
 
-All under `/api/v1/auth`. The login, refresh and logout endpoints don't need an access token; the session endpoints do.
+All under `/api/v1/auth`. The login, invitation, refresh and logout endpoints don't need an access token; the session endpoints do.
 
 ### `POST /login` — step one on a new device
 
@@ -51,7 +51,7 @@ Body: `{"family_name": "...", "password": "..."}`. Only admins send `password`; 
 
 The 200 is identical in every case, so the endpoint doesn't say which family names exist or who is an admin. A sent password always costs the same Argon2 time. A few answers do only happen for real accounts: the 429 limits (`code_recently_sent`, `too_many_codes`) and an email failure (503 `email_not_sent` / `email_not_configured`). We accept that, because telling a real member what went wrong matters more, and family names aren't secret anyway; the code is what protects the account.
 
-**Password checks are capped.** Anyone can make the server check a password, even for a family name that doesn't exist, so hashing is kept cheap and limited: Argon2id with OWASP's settings (19 MiB, 2 passes), and at most **2 hashes at a time**. Others wait their turn; one that has waited 5 seconds gets 429 `password_check_busy` ("Too many sign-ins at once"), and the user can simply try again. The same cap covers `POST /auth/google` for admins and setting an admin's password.
+**Password checks are capped.** Anyone can make the server check a password, even for a family name that doesn't exist, so hashing is kept cheap and limited: Argon2id with OWASP's settings (19 MiB, 2 passes), and at most **2 hashes at a time**. Others wait their turn; one that has waited 5 seconds gets 429 `password_check_busy` ("Too many sign-ins at once"), and the user can simply try again. The same cap covers `POST /auth/google` for admins and an admin accepting their invitation.
 
 > **Frontend:** give admins a way to enter their password (for example an "I'm an admin" link that shows the field). An admin who logs in without it gets the normal "code is on its way" answer, but no email.
 
@@ -162,7 +162,53 @@ Needs an access token. Revokes that session: its refresh token stops working at 
 - **Cleanup:** there's no scheduler, so every login request deletes codes older than 24 hours and sessions that expired or were revoked more than 7 days ago.
 - **Sending:** codes are sent **during the request**. If the email provider fails, the user sees an error right away and can try again, instead of waiting for an email that never arrives. A code that couldn't be sent is deleted, so it doesn't trigger the 60-second cooldown.
 - **Concurrency:** issuing a code locks the user's row, and checking one locks the code's row, so two requests at once can't both get past the limits or both use the same code. The code is committed *before* the email is sent, so no lock is held while waiting for the provider.
-- **`email_verified_at`** is set the first time a code to an address works, or the first Google login with it. It doesn't grant access; it tells us the address is real. When an admin changes someone's email, it's cleared and a code goes to the new address.
+- **`email_verified_at`** is set the first time a code to an address works, an invitation link sent to it is accepted, or Google logs in with it. It doesn't grant access; it tells us the address is real. When an admin changes someone's email, it's cleared, and the new address gets a code (or, if their invitation was still unaccepted, a new invitation link).
+
+## Invitations
+
+Adding someone (`POST /users`) emails them an **invitation link**: `<FRONTEND_URL>/invitation#token=…`. Members accept it to confirm their email address; admins also **choose their own password** with it. No admin ever sets another admin's password.
+
+```mermaid
+sequenceDiagram
+    actor N as New member
+    participant F as Frontend
+    participant A as API
+    participant E as Email
+
+    A->>E: invitation link (on POST /users)
+    N->>F: opens /invitation#token=…
+    F->>A: POST /auth/invitations/check {token}
+    A-->>F: {family_name, display_name, needs_password}
+    N->>F: (admins: chooses a password)
+    F->>A: POST /auth/invitations/accept {token, password?}
+    A->>A: email verified, password set (admins), link used up
+    A-->>F: 204
+    F->>N: login page (the usual code or Google login)
+```
+
+- **Accepting doesn't log in.** The user then logs in as usual, so a forwarded or stolen email is never enough to get into an account: members still need a code (or Google) on each new device, and admins their password too.
+- **Members can log in before accepting.** Their first code proves the address as well, and the link then just confirms it again.
+- **The link** works **once**, for **7 days**. Only the newest link works: a new one (a resend, a promotion, a corrected address) replaces the old one. The token is 256 random bits, stored as an HMAC keyed by `CODE_SECRET`.
+- **The token is after `#`,** which browsers never send to a server, so it stays out of the frontend host's logs. The page reads it from `location.hash` and posts it, so the token never sits in a URL the API receives either. A link scanner that opens the page changes nothing, because only the page's POST does.
+- **Who gets one, and when:**
+  - a new user, on `POST /users`;
+  - someone **promoted to admin**, to choose their password;
+  - someone whose **email an admin corrects** before they accepted: the old link stops working and a new one goes to the new address;
+  - on request, with `POST /users/{id}/invitation` (admins): a member who hasn't accepted yet, or **any admin**, which is how a forgotten password is reset.
+- **The automatic ones never fail the admin's change.** If the email can't be sent (or `FRONTEND_URL` is empty), the change is saved, `invited_at` stays as it was, and the admin resends. A manual resend reports the error instead (503 `email_not_sent`, `email_not_configured` or `invitations_not_configured`), and allows one per minute (429 `invitation_recently_sent`), so a double click doesn't send two links, the first already dead. **The members imported from v1 have no invitation yet** (`invited_at` null); they'll be invited later.
+- **Deactivating** someone cancels their link.
+
+### `POST /invitations/check` — who the link is for
+
+Body: `{"token": "..."}`. Returns 200 `{family_name, display_name, needs_password}` (`needs_password` is true for admins) and changes nothing. A POST, not a GET with the token in the path, so the token stays out of URLs and logs.
+
+### `POST /invitations/accept` — accept it
+
+Body: `{"token": "...", "password": "..."}`. Admins must send `password`, 8 to 256 characters (a shorter or longer one is a 422, and a missing one 400 `password_required`, after which the link still works); members leave it out (one they send anyway is ignored). Sets `email_verified_at` (keeping an earlier time), stores the admin's password hash, and deletes the link. Returns 204 with no body and no cookie.
+
+**Errors for both:** a wrong, used, replaced or expired link, or a deactivated user's, all get 400 `invalid_invitation` ("ask an admin to send a new one").
+
+> **Frontend:** build the `/invitation` page. Read the token from `location.hash`, call `check` to greet the person and decide whether to show a password field, then `accept`, and send them to the login page with their family name filled in. On `invalid_invitation`, tell them to ask an admin for a new link.
 
 ## Why the Vercel proxy
 
