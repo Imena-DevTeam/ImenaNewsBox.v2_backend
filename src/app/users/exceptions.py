@@ -42,9 +42,19 @@ class CannotDeactivateSelf(Conflict):
     default_message = "You can't deactivate yourself. Ask another admin."
 
 
-class NotAnAdmin(Conflict):
-    code = "not_an_admin"
-    default_message = "Only admins have a password. Make them an admin first."
+class InvitationNotNeeded(Conflict):
+    """A member who has already confirmed their email. Admins can always get a new link: it's
+    how they reset a forgotten password."""
+
+    code = "invitation_not_needed"
+    default_message = (
+        "They've already accepted their invitation. Members log in with their family name."
+    )
+
+
+class UserDeactivated(Conflict):
+    code = "user_deactivated"
+    default_message = "They're deactivated. Reactivate them first."
 
 
 class EmailAlreadyVerified(Conflict):

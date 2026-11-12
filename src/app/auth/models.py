@@ -1,4 +1,4 @@
-"""Login sessions (one per device) and emailed codes."""
+"""Login sessions (one per device), emailed codes and invitation links."""
 
 import uuid
 from datetime import datetime
@@ -69,6 +69,25 @@ class EmailCode(Base):
 
     def __repr__(self) -> str:
         return f"<EmailCode {self.id} user={self.user_id} purpose={self.purpose}>"
+
+
+class Invitation(Base):
+    """The one invitation link a user may hold, stored only as an HMAC of its token.
+
+    The user's id is the key, so a new invitation replaces the old one (whose link then stops
+    working), and using the link deletes the row.
+    """
+
+    __tablename__ = "invitations"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(HASH_LENGTH), unique=True)
+    # Both set with the app's clock (see CLAUDE.md, "Conventions").
+    created_at: Mapped[datetime]
+    expires_at: Mapped[datetime]
+
+    def __repr__(self) -> str:
+        return f"<Invitation user={self.user_id}>"
 
 
 # "The latest code for this user and purpose": used for verification and the resend cooldown.

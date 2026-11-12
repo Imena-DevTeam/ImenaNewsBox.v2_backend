@@ -105,7 +105,7 @@ Every user is created by an admin, so the very first admin comes from a command 
 1. **Sub-families first.** Every user needs one, and they're added by a migration (HOPE, LIGHT and WIHOGORA). The seed only works once that migration has run on the target database (the container runs `alembic upgrade head` on every start).
 2. **Settings.** In your local `.env` (never committed), or as environment variables for one run:
    - `DATABASE_URL`: the target database. For Neon, the **direct** (unpooled) URL is the simplest for a one-off script.
-   - `FIRST_ADMIN_FAMILY_NAME`, `FIRST_ADMIN_EMAIL`, `FIRST_ADMIN_PASSWORD` (at least 12 characters) and `FIRST_ADMIN_SUB_FAMILY` (the **exact name** of an existing sub-family: `HOPE`, `LIGHT` or `WIHOGORA`).
+   - `FIRST_ADMIN_FAMILY_NAME`, `FIRST_ADMIN_EMAIL`, `FIRST_ADMIN_PASSWORD` (at least 8 characters) and `FIRST_ADMIN_SUB_FAMILY` (the **exact name** of an existing sub-family: `HOPE`, `LIGHT` or `WIHOGORA`).
 3. **Run it:** `uv run python scripts/seed_admin.py`. It prints "Created the admin …" or "… already exists; nothing changed", and exits with 1 and a reason if it refuses.
 4. **Log in:** the admin logs in with family name + password, then the emailed code (or Google). Remove `FIRST_ADMIN_PASSWORD` from your `.env` afterwards; the database only keeps its hash.
 
@@ -147,7 +147,7 @@ Running it again is safe: it never resets the password or changes another user. 
 | **To check** | imported, but look at it: a missing or odd birthday, or a photo that was left out |
 
 **What it does:**
-- **Everyone arrives as a plain member:** unverified, with no promotion, password, Sanity author or sessions. Each member's first login (code or Google) verifies their email.
+- **Everyone arrives as a plain member:** unverified, with no promotion, password, Sanity author, sessions or invitation. Each member's first login (code or Google) verifies their email. The import sends no invitations; an admin can invite each member later (`POST /users/{id}/invitation`).
 - **Kept from v1:** `name` → display name, `familyName` → family name (with v1's capitals), `email`, `birthday`, `subFam` → sub-family (ignoring case, so "Light" is LIGHT), `profilePic` → photo, and the MongoDB `_id` → `users.legacy_id`. The `_id` also records when v1 created the profile, which becomes `created_at`.
 - **Finding people already in v2:** by `legacy_id` first, so a member imported before is still recognized after an admin renames them or changes their email. Otherwise by family name, but only if the email matches too.
 - **It never overwrites anything.** For someone already in v2 it only fills fields that are still empty, so what members and admins set in v2 always wins.

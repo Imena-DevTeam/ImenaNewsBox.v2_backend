@@ -94,3 +94,36 @@ def test_settings_reject_a_wildcard_cors_origin() -> None:
 def test_production_requires_long_secrets(name: str) -> None:
     with pytest.raises(ValidationError, match=f"{name} must be at least 32 characters"):
         Settings(environment="production", **{name: "too-short"})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("https://newsbox.example", "https://newsbox.example"),
+        ("  https://newsbox.example/ ", "https://newsbox.example"),
+        ("http://localhost:3000", "http://localhost:3000"),
+        ("", ""),
+    ],
+)
+def test_frontend_url_is_kept_as_an_origin(value: str, expected: str) -> None:
+    assert Settings(frontend_url=value).frontend_url == expected
+
+
+@pytest.mark.parametrize(
+    "value", ["newsbox.example", "https://newsbox.example/app", "ftp://newsbox.example"]
+)
+def test_frontend_url_must_be_an_address_without_a_path(value: str) -> None:
+    with pytest.raises(ValidationError, match="FRONTEND_URL must be the frontend's address"):
+        Settings(frontend_url=value)
+
+
+def test_production_links_use_https() -> None:
+    secret = "x" * 32
+    with pytest.raises(ValidationError, match="FRONTEND_URL must use https://"):
+        Settings(
+            environment="production",
+            frontend_url="http://newsbox.example",
+            access_token_secret=secret,  # type: ignore[arg-type]
+            refresh_token_secret=secret,  # type: ignore[arg-type]
+            code_secret=secret,  # type: ignore[arg-type]
+        )

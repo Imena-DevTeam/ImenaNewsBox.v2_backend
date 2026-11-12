@@ -138,9 +138,36 @@ def build_code_email(to: str, code: str, purpose: CodePurpose) -> EmailMessage:
     return EmailMessage(to=to, subject=subject, text=body.format(code=code, minutes=minutes))
 
 
-async def send_code(sender: EmailSender, *, to: str, code: str, purpose: CodePurpose) -> None:
-    """Send a code email now. Raises `EmailNotSent` if both attempts fail."""
-    message = build_code_email(to, code, purpose)
+def build_invitation_email(
+    *, to: str, display_name: str, family_name: str, link: str, sets_password: bool, days: int
+) -> EmailMessage:
+    """The invitation email. Admins' version asks them to set their password; it's also what a
+    newly promoted admin, or one who forgot their password, receives."""
+    if sets_password:
+        subject = "Set your Imena NewsBox admin password"
+        opening = "You're an admin of Imena NewsBox. Open this link to set your password:"
+        login = f"Then log in with your family name, {family_name}, and that password."
+    else:
+        subject = "You're invited to Imena NewsBox"
+        opening = (
+            "You've been added to Imena NewsBox, the Imena family's private space. Open this "
+            "link to accept your invitation:"
+        )
+        login = (
+            f"Then log in with your family name, {family_name}. Each new device asks for a "
+            "code, which we email to this address."
+        )
+    text = (
+        f"Hello {display_name},\n\n{opening}\n\n{link}\n\n{login}\n\n"
+        f"The link works once and expires in {days} days. If it has expired, ask an admin to "
+        "send a new one. If you weren't expecting this email, you can ignore it."
+    )
+    return EmailMessage(to=to, subject=subject, text=text)
+
+
+async def send_email(sender: EmailSender, message: EmailMessage, *, kind: str) -> None:
+    """Send an email now, with a short timeout and one retry. `kind` only names it in the
+    logs ("login code", "invitation"). Raises `EmailNotSent` if both attempts fail."""
     for attempt in range(1, SEND_ATTEMPTS + 1):
         try:
             async with asyncio.timeout(SEND_TIMEOUT_SECONDS):
@@ -148,10 +175,15 @@ async def send_code(sender: EmailSender, *, to: str, code: str, purpose: CodePur
             return
         except (EmailDeliveryError, TimeoutError) as exc:
             logger.warning(
-                "Sending a %s code email failed (attempt %d of %d): %s",
-                purpose,
+                "Sending a %s email failed (attempt %d of %d): %s",
+                kind,
                 attempt,
                 SEND_ATTEMPTS,
                 type(exc).__name__,
             )
     raise EmailNotSent()
+
+
+async def send_code(sender: EmailSender, *, to: str, code: str, purpose: CodePurpose) -> None:
+    """Send a code email now. Raises `EmailNotSent` if both attempts fail."""
+    await send_email(sender, build_code_email(to, code, purpose), kind=f"{purpose} code")

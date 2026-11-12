@@ -10,6 +10,8 @@
   leaked database can't be used to forge or recognise tokens.
 - **Email codes** are 6 random digits, stored as an HMAC keyed by `CODE_SECRET`. A keyed hash
   matters here: a million possible codes could be brute-forced from a plain hash in seconds.
+- **Invitation tokens** are opaque random strings sent in an emailed link, stored as an HMAC
+  keyed by `CODE_SECRET` (with its own prefix, so a hash can never match a code's).
 
 Settings are read inside each function, never at import time.
 """
@@ -39,6 +41,8 @@ ACCESS_TOKEN_TYPE: Final = "access"
 CODE_LENGTH: Final = 6
 CODE_TTL: Final = timedelta(minutes=10)
 REFRESH_TOKEN_BYTES: Final = 32
+INVITATION_TOKEN_BYTES: Final = 32
+INVITATION_TTL: Final = timedelta(days=7)
 
 # OWASP's recommended Argon2id settings (19 MiB, 2 passes, 1 lane), instead of argon2-cffi's
 # default of 64 MiB. Each hash records its own settings, so older hashes still verify.
@@ -204,6 +208,20 @@ def hash_code(code: str) -> str:
 def verify_code(code: str, code_hash: str) -> bool:
     """Constant-time check of a submitted code against its stored hash."""
     return hmac.compare_digest(hash_code(code), code_hash)
+
+
+# --- Invitation tokens ---
+
+
+def generate_invitation_token() -> str:
+    """A new random token for an invitation link. Email it; store only its hash."""
+    return secrets.token_urlsafe(INVITATION_TOKEN_BYTES)
+
+
+def hash_invitation_token(token: str) -> str:
+    """The value stored in `invitations` and looked up when the link is used. It's 256 random
+    bits, so a lookup by hash is safe: there's nothing to guess."""
+    return _hmac_hex(get_settings().code_secret.get_secret_value(), f"invitation:{token}")
 
 
 def _hmac_hex(key: str, message: str) -> str:

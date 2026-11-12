@@ -1,6 +1,16 @@
 """Exceptions raised by this feature."""
 
-from app.core.exceptions import Conflict, Forbidden, NotFound, TooManyRequests, Unauthorized
+from http import HTTPStatus
+
+from app.core.exceptions import (
+    AppError,
+    BadRequest,
+    Conflict,
+    Forbidden,
+    NotFound,
+    TooManyRequests,
+    Unauthorized,
+)
 
 
 class NotAuthenticated(Unauthorized):
@@ -84,3 +94,28 @@ class AdminPasswordRequired(Unauthorized):
 class SessionNotFound(NotFound):
     code = "session_not_found"
     default_message = "That session doesn't exist."
+
+
+class InvalidInvitation(BadRequest):
+    """Unknown, used, replaced or expired, or the user was deactivated: one error for all."""
+
+    code = "invalid_invitation"
+    default_message = (
+        "This invitation link is wrong, used or expired. Ask an admin to send a new one."
+    )
+
+
+class PasswordRequired(BadRequest):
+    code = "password_required"
+    default_message = "Admins set their password with this link. Choose one first."
+
+
+class InvitationRecentlySent(TooManyRequests):
+    code = "invitation_recently_sent"
+    default_message = "An invitation was sent less than a minute ago. Give it time to arrive."
+
+
+class InvitationsNotConfigured(AppError):
+    status_code = HTTPStatus.SERVICE_UNAVAILABLE
+    code = "invitations_not_configured"
+    default_message = "Invitations aren't set up on this server yet (FRONTEND_URL is empty)."

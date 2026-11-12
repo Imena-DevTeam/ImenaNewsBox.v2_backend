@@ -16,13 +16,12 @@ from pydantic import (
     ConfigDict,
     EmailStr,
     Field,
-    SecretStr,
     StringConstraints,
     field_validator,
     model_validator,
 )
 
-from app.auth.schemas import PASSWORD_MAX_LENGTH, Code, FamilyName
+from app.auth.schemas import Code, FamilyName
 from app.core.pagination import PageParams
 from app.users.models import (
     BIO_MAX_LENGTH,
@@ -36,7 +35,6 @@ EARLIEST_BIRTHDAY: Final = date(1900, 1, 1)
 # Published Sanity document IDs: Studio makes UUIDs, and we make `author-<user id>`.
 # No dots: those mark drafts and other unpublished versions.
 SANITY_ID_PATTERN: Final = r"^[A-Za-z0-9_-]+$"
-MIN_ADMIN_PASSWORD_LENGTH: Final = 12
 
 
 def _check_email_length(email: str) -> str:
@@ -130,8 +128,13 @@ class UserRead(BaseModel):
     bio: str | None
     email: str
     email_verified_at: datetime | None
+    invited_at: datetime | None = Field(
+        description="When the latest invitation email went out; null if none ever did."
+    )
     role: Role
-    has_password: bool = Field(description="Admins can't log in until a password is set.")
+    has_password: bool = Field(
+        description="Admins can't log in until they set one with their invitation link."
+    )
     sanity_author_id: str | None = Field(
         description="The Sanity author their blog posts are credited to, once linked."
     )
@@ -144,7 +147,8 @@ class AccountListParams(PageParams):
 
 
 class UserCreate(BaseModel):
-    """Admins only: there's no self-signup. Admins get a password separately."""
+    """Admins only: there's no self-signup. The new user is emailed an invitation link, and
+    admins choose their own password with it."""
 
     # A misspelt or unexpected field (say, "password") is an error, not silently dropped.
     model_config = ConfigDict(extra="forbid")
@@ -179,12 +183,6 @@ class UserUpdate(BaseModel):
             if name in self.model_fields_set and getattr(self, name) is None:
                 raise ValueError(f"{name} can't be null")
         return self
-
-
-class PasswordSet(BaseModel):
-    password: Annotated[
-        SecretStr, Field(min_length=MIN_ADMIN_PASSWORD_LENGTH, max_length=PASSWORD_MAX_LENGTH)
-    ]
 
 
 class ProfileUpdate(BaseModel):

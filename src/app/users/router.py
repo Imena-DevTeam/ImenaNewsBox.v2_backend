@@ -26,7 +26,6 @@ from app.users.schemas import (
     AccountListParams,
     AuthorLink,
     EmailConfirm,
-    PasswordSet,
     ProfileUpdate,
     PromotionRead,
     SubFamilyRead,
@@ -52,9 +51,11 @@ async def list_users(user: CurrentUser, db: DbSession, params: Pagination) -> Pa
 
 
 @router.post("", status_code=HTTPStatus.CREATED)
-async def create_user(body: UserCreate, admin: AdminUser, db: DbSession) -> UserRead:
-    """Admins: register a member. To make an admin who can log in, also set a password."""
-    return UserRead.model_validate(await service.create_user(db, body))
+async def create_user(body: UserCreate, admin: AdminUser, db: DbSession, sender: Email) -> UserRead:
+    """Admins: register a member and email them an invitation link. Accepting it confirms
+    their email, and admins choose their password with it. If the email fails, the member is
+    still created with `invited_at` null: send it again with `POST /users/{id}/invitation`."""
+    return UserRead.model_validate(await service.create_user(db, body, sender))
 
 
 @router.get("/me")
@@ -152,12 +153,14 @@ async def reactivate_user(user_id: uuid.UUID, admin: AdminUser, db: DbSession) -
     return UserRead.model_validate(await service.reactivate_user(db, user_id))
 
 
-@router.put("/{user_id}/password", status_code=HTTPStatus.NO_CONTENT)
-async def set_admin_password(
-    user_id: uuid.UUID, body: PasswordSet, admin: AdminUser, db: DbSession
-) -> None:
-    """Admins: set an admin's password (at least 12 characters), e.g. after promoting them."""
-    await service.set_admin_password(db, user_id, body.password.get_secret_value())
+@router.post("/{user_id}/invitation")
+async def invite_user(
+    user_id: uuid.UUID, admin: AdminUser, db: DbSession, sender: Email
+) -> UserRead:
+    """Admins: email a new invitation link, which replaces the old one. For members who
+    haven't accepted theirs yet, and for any admin: their link sets a new password, so it
+    also resets a forgotten one."""
+    return UserRead.model_validate(await service.invite_user(db, sender, user_id))
 
 
 @router.put("/{user_id}/sanity-author")

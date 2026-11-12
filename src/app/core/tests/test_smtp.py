@@ -102,11 +102,14 @@ def plain_server(inbox: Inbox) -> Iterator[int]:
 
 def _settings(port: int, **fields: Any) -> Settings:
     # model_copy skips validation, so tests can also build settings the validator refuses.
+    # Every SMTP setting is pinned, so a local .env with real SMTP details changes nothing.
     values: dict[str, Any] = {
         "email_from": FROM,
         "smtp_host": "127.0.0.1",
         "smtp_port": port,
         "smtp_security": "none",
+        "smtp_username": "",
+        "smtp_password": SecretStr(""),
         **fields,
     }
     return get_settings().model_copy(update=values)

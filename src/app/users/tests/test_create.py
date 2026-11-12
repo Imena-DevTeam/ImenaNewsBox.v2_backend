@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.fakes import FakeEmailSender
 from app.users.models import Promotion, Role, SubFamily, User
 
@@ -69,7 +70,36 @@ async def test_an_admin_registers_a_member(
     assert stored.password_hash is None
 
 
-async def test_the_new_member_can_log_in_with_a_code(
+async def test_the_new_member_is_emailed_an_invitation(
+    client: AsyncClient,
+    fake_email: FakeEmailSender,
+    admin_headers: dict[str, str],
+    sub_family: SubFamily,
+    frontend_url: str,
+) -> None:
+    response = await client.post(USERS, json=_body(sub_family), headers=admin_headers)
+
+    assert response.json()["invited_at"] is not None
+    [invitation] = fake_email.sent_to("aline@example.com")
+    assert invitation.subject == "You're invited to Imena NewsBox"
+    page, _ = fake_email.last_invitation_link("aline@example.com")
+    assert page == f"{frontend_url}/invitation"
+
+
+async def test_a_new_admin_is_emailed_a_link_to_set_their_password(
+    client: AsyncClient,
+    fake_email: FakeEmailSender,
+    admin_headers: dict[str, str],
+    sub_family: SubFamily,
+) -> None:
+    response = await client.post(USERS, json=_body(sub_family, role="admin"), headers=admin_headers)
+
+    assert response.json()["has_password"] is False
+    [invitation] = fake_email.sent_to("aline@example.com")
+    assert invitation.subject == "Set your Imena NewsBox admin password"
+
+
+async def test_the_new_member_can_log_in_with_a_code_before_accepting(
     client: AsyncClient,
     fake_email: FakeEmailSender,
     admin_headers: dict[str, str],
@@ -80,7 +110,41 @@ async def test_the_new_member_can_log_in_with_a_code(
     response = await client.post("/api/v1/auth/login", json={"family_name": "ishimwe"})
 
     assert response.status_code == 200
-    assert len(fake_email.sent_to("aline@example.com")) == 1
+    assert fake_email.last_code("aline@example.com")
+
+
+async def test_the_member_is_created_even_if_the_invitation_fails(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    fake_email: FakeEmailSender,
+    admin_headers: dict[str, str],
+    sub_family: SubFamily,
+) -> None:
+    fake_email.failures_left = 2
+
+    response = await client.post(USERS, json=_body(sub_family), headers=admin_headers)
+
+    assert response.status_code == 201
+    assert response.json()["invited_at"] is None
+    assert fake_email.sent == []
+    assert await _count(db_session) == 2
+
+
+async def test_without_a_frontend_url_the_member_is_created_uninvited(
+    client: AsyncClient,
+    fake_email: FakeEmailSender,
+    admin_headers: dict[str, str],
+    sub_family: SubFamily,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = get_settings().model_copy(update={"frontend_url": ""})
+    monkeypatch.setattr("app.auth.service.get_settings", lambda: settings)
+
+    response = await client.post(USERS, json=_body(sub_family), headers=admin_headers)
+
+    assert response.status_code == 201
+    assert response.json()["invited_at"] is None
+    assert fake_email.sent == []
 
 
 async def test_names_are_trimmed(

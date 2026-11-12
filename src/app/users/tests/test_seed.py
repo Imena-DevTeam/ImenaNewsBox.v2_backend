@@ -109,7 +109,7 @@ async def test_the_sub_family_must_already_exist(
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"password": "short"}, "at least 12 characters"),
+        ({"password": "seven c"}, "at least 8 characters"),
         ({"email": "not-an-email"}, "must be an email address"),
         ({"family_name": "  "}, "Set FIRST_ADMIN_FAMILY_NAME"),
         ({"sub_family": ""}, "Set FIRST_ADMIN_FAMILY_NAME and FIRST_ADMIN_SUB_FAMILY"),

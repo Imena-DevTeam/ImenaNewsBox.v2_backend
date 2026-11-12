@@ -46,7 +46,7 @@ These are implemented as **separate response schemas** (e.g. `UserPublicRead` an
 There's no separate "profile" table: profile fields live on `users`. A user has at least:
 
 - **family name:** unique (case-insensitive) and used to log in
-- **email:** where login codes are sent; `email_verified_at` records the first time a code to this address worked. Unique ignoring case, including deactivated users, so a code always reaches exactly one account.
+- **email:** where invitations and login codes are sent; `email_verified_at` records the first time a code, an invitation link or a Google login proved this address. `invited_at` records when the latest invitation went out. Unique ignoring case, including deactivated users, so a code always reaches exactly one account.
 - **sub-family** and optional **promotion:** chosen from fixed lists (`sub_families` and `promotions` tables, filled in by migrations)
 - **role**, and a **password hash** (admins only)
 - **display name**, **birthday**, **profile photo** (stored in Cloudinary)
@@ -60,8 +60,8 @@ There's no separate "profile" table: profile fields live on `users`. A user has 
 - **Adding next year's promotion** is a small data migration that inserts it at the next `position`.
 
 **Rules:**
-- **No self-signup.** Only admins create users. The very first admin is created by a seed script from environment variables.
-- **Changing an email** (admin only) clears `email_verified_at` and sends a code to the new address, which the user confirms while logged in.
+- **No self-signup.** Only admins create users, and each new user is emailed an **invitation link**: accepting it confirms their email, and admins choose their own password with it (see [Authentication → Invitations](auth.md#invitations)). The very first admin is created by a seed script from environment variables.
+- **Changing an email** (admin only) clears `email_verified_at` and sends a code to the new address, which the user confirms while logged in. If their invitation was still unaccepted, a new invitation link goes to the new address instead.
 - **Soft delete only.** Deactivating sets `deactivated_at`, signs the user out everywhere, and blocks future logins. Deactivated users disappear from member listings, but their family name stays reserved and their wishes are kept.
 
 ### Users API
@@ -79,22 +79,22 @@ All under `/api/v1/users`, and all need an access token.
 | `POST /me/email/resend` | any member | emails a new confirmation code (same limits as login codes: one a minute, ten a day). 409 `email_already_verified` if it's confirmed already |
 | `GET /{id}/account` | the user themselves, or an admin | one account as `UserRead`; admins also see deactivated users. Anyone else gets 403 `not_owner` |
 | `GET /accounts` | admins | every active account as `UserRead`, paginated; add `?include_deactivated=true` for deactivated ones too |
-| `POST /` | admins | registers a member (201, `UserRead`): `{family_name, display_name, email, sub_family_id, promotion_id?, birthday?, role?}`. Role defaults to `member`; an admin also needs a password before they can log in |
+| `POST /` | admins | registers a member (201, `UserRead`): `{family_name, display_name, email, sub_family_id, promotion_id?, birthday?, role?}`, and emails them an invitation link. Role defaults to `member`; an admin chooses their password with the link before they can log in. If the email fails, the member is still created with `invited_at` null |
+| `POST /{id}/invitation` | admins | emails a new invitation link, replacing the old one (200, `UserRead`). For members who haven't accepted yet, and for any admin (their link sets a new password, so it also resets a forgotten one). Errors: 409 `invitation_not_needed` (a member who already accepted) or `user_deactivated`, 429 `invitation_recently_sent` (one a minute), 503 `email_not_sent`, `email_not_configured` or `invitations_not_configured` |
 | `PATCH /{id}` | admins | changes any fields of any user, deactivated ones included; send only what changes (`promotion_id` and `birthday` can be `null`). Returns `UserRead` |
 | `POST /{id}/deactivate` | admins | soft-deletes the user and signs them out of every device in the same transaction, so their next request fails. Repeating it changes nothing; admins can't deactivate themselves (409 `cannot_deactivate_self`) |
 | `POST /{id}/reactivate` | admins | lets them log in again. Old sessions stay revoked, so each device logs in from scratch |
 | `PUT /{id}/photo` | the user themselves, or an admin | uploads a profile photo (multipart field `photo`; JPEG, PNG, WebP or HEIC, at most 5 MB, checked by its content, not its name). Returns `UserRead`. Errors: 400 `unsupported_image`, 413 `image_too_large`, 502 `media_unavailable` |
 | `DELETE /{id}/photo` | the user themselves, or an admin | removes the photo. Returns `UserRead` |
 | `PUT /{id}/sanity-author` | admins | `{author_id}`: credits the user's blog posts to an existing Sanity author, or unlinks with `null` (see Blog posts → Authors). Returns `UserRead`. Errors: 400 `unknown_author`, 409 `not_a_writer` (plain members) or `author_already_linked` |
-| `PUT /{id}/password` | admins | sets an admin's password, their own included (`{password}`, 12 to 256 characters; 204). For an admin who has none yet or forgot it; 409 `not_an_admin` for anyone else. Their sessions aren't touched |
 
 `UserPublicRead` is `{id, family_name, display_name, photo_url, sub_family: {id, name}, promotion: {id, name} | null, birthday: {month, day} | null}`. The year of birth is dropped inside the schema itself, so no route can send it to other members by mistake.
 
-`UserRead` adds the private fields: the full `birthday` date, `email`, `email_verified_at`, `role`, `has_password` (admins can't log in until it's true), `sanity_author_id` (the Sanity author their blog posts are credited to; see Blog posts), `deactivated_at` and `created_at`. The password hash is never in any response.
+`UserRead` adds the private fields: the full `birthday` date, `email`, `email_verified_at`, `invited_at` (when the latest invitation went out; null if none ever did), `role`, `has_password` (admins can't log in until it's true), `sanity_author_id` (the Sanity author their blog posts are credited to; see Blog posts), `deactivated_at` and `created_at`. The password hash is never in any response.
 
 **Rules when an admin changes a user:**
-- **A new email** (not just different capitals) clears `email_verified_at` and emails a confirmation code to the new address. If that email can't be sent, the admin's change is still saved; the member asks for another code with `POST /me/email/resend`.
-- **Demoting an admin** removes their password, since only admins have one. **Promoting** someone to admin doesn't give them one: set it before they log in.
+- **A new email** (not just different capitals) clears `email_verified_at` and emails a confirmation code to the new address. If that email can't be sent, the admin's change is still saved; the member asks for another code with `POST /me/email/resend`. If their invitation was still unaccepted, the old link stops working and a new invitation goes to the new address instead of a code.
+- **Promoting** someone to admin emails them a link to choose their password; they can't log in as an admin until they have. If that email fails, the promotion is still saved and an admin resends it. **Demoting an admin** removes their password, since only admins have one.
 - **Demoting someone to a plain member** unlinks their Sanity author, since only post writers have one. Their old posts keep their author; if they're promoted again, an admin links them again.
 - **Admins can't change their own role** (409 `cannot_change_own_role`), so the last admin can't demote themselves and leave nobody to manage users. They can change their other fields.
 
@@ -214,6 +214,6 @@ v1's MongoDB profiles are imported into `users` by a one-off script (`scripts/im
 | `_id` | `legacy_id` (unique), and its creation time becomes `created_at` |
 
 - **Roles:** everyone is imported as a plain member. The seeded first admin promotes the others in the app and links the Sanity authors.
-- **Imported state:** everyone starts with `email_verified_at` empty, no promotion and no sessions, so each member verifies on their first login.
+- **Imported state:** everyone starts with `email_verified_at` empty, no promotion, no sessions and no invitation (`invited_at` empty), so each member verifies on their first login. Inviting them is left for later; an admin can send each one an invitation with `POST /users/{id}/invitation`.
 - **v1 wishes are not imported.** They had no recipient and were wiped nightly anyway.
 - **Safety:** it's a dry run unless asked to write, and running it again is safe. It finds people already in v2 by `legacy_id`, or else by family name with a matching email, and only fills their empty fields. It's tested on a Neon branch first.

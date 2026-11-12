@@ -80,6 +80,9 @@ class User(TimestampMixin, Base):
     # Unique ignoring case (see the index below), so a code always reaches one account.
     email: Mapped[str] = mapped_column(String(EMAIL_MAX_LENGTH))
     email_verified_at: Mapped[datetime | None]
+    # When the latest invitation email went out. Empty for anyone never sent one (the
+    # members imported from v1, or when the email failed).
+    invited_at: Mapped[datetime | None]
     birthday: Mapped[date | None]
     # A few lines about themselves, written by the member and shown to everyone.
     bio: Mapped[str | None] = mapped_column(String(BIO_MAX_LENGTH))

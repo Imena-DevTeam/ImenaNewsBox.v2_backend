@@ -16,6 +16,7 @@ from app.core.media import MediaUnavailable, UploadedImage, check_image
 from app.core.sanity import SanityUnavailable
 
 _CODE = re.compile(r"\b(\d{6})\b")
+_INVITATION_LINK = re.compile(r"(\S+/invitation)#token=([A-Za-z0-9_-]+)")
 
 
 @dataclass
@@ -40,6 +41,15 @@ class FakeEmailSender:
         match = _CODE.search(messages[-1].text)
         assert match, "the last email has no 6-digit code"
         return match.group(1)
+
+    def last_invitation_link(self, address: str) -> tuple[str, str]:
+        """The page and the token of the invitation link in the most recent email to
+        `address`: `page, token = fake_email.last_invitation_link(user.email)`."""
+        messages = self.sent_to(address)
+        assert messages, f"no email was sent to {address}"
+        match = _INVITATION_LINK.search(messages[-1].text)
+        assert match, "the last email has no invitation link"
+        return match.group(1), match.group(2)
 
 
 @dataclass
