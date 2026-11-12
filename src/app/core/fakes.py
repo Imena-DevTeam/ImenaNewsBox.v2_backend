@@ -6,7 +6,7 @@ no test can reach a real external service. Tests get the same instances from the
 """
 
 import re
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -70,12 +70,12 @@ class FakeMediaStore:
         self.documents[public_id] = data
         return public_id
 
-    async def open_document(self, public_id: str) -> AsyncIterator[bytes]:
+    async def open_document(self, public_id: str) -> AsyncGenerator[bytes]:
         if self.fail_downloads or public_id not in self.documents:
             raise MediaUnavailable()
         data = self.documents[public_id]
 
-        async def chunks() -> AsyncIterator[bytes]:
+        async def chunks() -> AsyncGenerator[bytes]:
             # In two pieces, like a real download that arrives in chunks.
             middle = len(data) // 2
             yield data[:middle]

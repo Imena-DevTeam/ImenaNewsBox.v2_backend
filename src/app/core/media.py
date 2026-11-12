@@ -12,7 +12,7 @@ reads settings.
 """
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any, Final, Protocol
@@ -97,7 +97,7 @@ class MediaStore(Protocol):
         public ID. Raises `MediaUnavailable`."""
         ...
 
-    async def open_document(self, public_id: str) -> AsyncIterator[bytes]:
+    async def open_document(self, public_id: str) -> AsyncGenerator[bytes]:
         """Start downloading a private document and return its bytes as they arrive. Raises
         `MediaUnavailable` before returning if it can't be fetched, so the caller can still
         answer with an error. Iterate it to the end, or `aclose()` it."""
@@ -154,7 +154,7 @@ async def read_document(upload: UploadFile) -> bytes:
     return data
 
 
-async def _stream(client: httpx.AsyncClient, response: httpx.Response) -> AsyncIterator[bytes]:
+async def _stream(client: httpx.AsyncClient, response: httpx.Response) -> AsyncGenerator[bytes]:
     try:
         async for chunk in response.aiter_bytes():
             yield chunk
@@ -258,7 +258,7 @@ class CloudinaryMediaStore:
         )
         return str(url)
 
-    async def open_document(self, public_id: str) -> AsyncIterator[bytes]:
+    async def open_document(self, public_id: str) -> AsyncGenerator[bytes]:
         url = self._signed_document_url(public_id)
         client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS, transport=self._transport)
         try:
