@@ -21,6 +21,7 @@ ACCOUNT_FIELDS = {
     "bio",
     "email",
     "email_verified_at",
+    "invited_at",
     "role",
     "has_password",
     "sanity_author_id",

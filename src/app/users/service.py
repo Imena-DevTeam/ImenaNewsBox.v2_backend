@@ -14,12 +14,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import require_owner_or_admin
-from app.auth.exceptions import CodeRecentlySent, TooManyCodes
+from app.auth.exceptions import (
+    CodeRecentlySent,
+    InvitationRecentlySent,
+    InvitationsNotConfigured,
+    TooManyCodes,
+)
+from app.auth.schemas import PASSWORD_MIN_LENGTH
 from app.auth.service import (
+    INVITATION_RESEND_COOLDOWN,
+    cancel_invitation,
     consume_code,
     issue_code,
     mark_email_verified,
     revoke_all_sessions,
+    send_invitation,
+    sets_password,
 )
 from app.core.email import CodePurpose, EmailNotConfigured, EmailNotSent, EmailSender
 from app.core.media import MediaStore
@@ -31,14 +41,15 @@ from app.users.exceptions import (
     EmailAlreadyVerified,
     EmailTaken,
     FamilyNameTaken,
-    NotAnAdmin,
+    InvitationNotNeeded,
     NotAWriter,
     UnknownPromotion,
     UnknownSubFamily,
+    UserDeactivated,
     UserNotFound,
 )
 from app.users.models import Promotion, Role, SubFamily, User
-from app.users.schemas import MIN_ADMIN_PASSWORD_LENGTH, ProfileUpdate, UserCreate, UserUpdate
+from app.users.schemas import ProfileUpdate, UserCreate, UserUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -141,13 +152,18 @@ async def _check_lookups(
         raise UnknownPromotion()
 
 
-async def create_user(db: AsyncSession, data: UserCreate) -> User:
-    """Register a member (admins only). Commits."""
+async def create_user(db: AsyncSession, data: UserCreate, sender: EmailSender) -> User:
+    """Register a member (admins only) and email them an invitation link. Commits.
+
+    The user is saved even if the email fails: `invited_at` then stays empty, and an admin
+    can send it again (`invite_user`).
+    """
     await _check_lookups(db, sub_family_id=data.sub_family_id, promotion_id=data.promotion_id)
     user = User(**data.model_dump())
     async with _unique_fields(db):
         db.add(user)
     await db.commit()
+    await _try_to_invite(db, sender, user)
     return await get_user(db, user.id)
 
 
@@ -160,8 +176,11 @@ async def update_user(
 ) -> User:
     """Change a user's fields (admins only, deactivated users included). Commits.
 
-    - A new email (not just different capitals) clears `email_verified_at` and sends
-      a code to the new address (see `send_email_confirmation`).
+    - A new email (not just different capitals) clears `email_verified_at`. An unused
+      invitation link went to the old address, so it stops working and a new one goes to
+      the new address. Otherwise the new address gets a confirmation code (see
+      `send_email_confirmation`).
+    - Promoting someone to admin emails them a link to set their password.
     - Demoting an admin removes their password: only admins have one.
     - Demoting someone to a plain member unlinks their Sanity author: only post
       writers have one. Their old posts keep their author.
@@ -171,9 +190,11 @@ async def update_user(
     fields = changes.model_dump(exclude_unset=True)
 
     new_role = fields.get("role")
+    promoted = False
     if new_role is not None and new_role != user.role:
         if user.id == actor.id:
             raise CannotChangeOwnRole()
+        promoted = new_role.at_least(Role.ADMIN) and not user.role.at_least(Role.ADMIN)
         if not new_role.at_least(Role.ADMIN):
             fields["password_hash"] = None
         if not new_role.at_least(Role.SOCIAL_MEDIA_MANAGER):
@@ -189,10 +210,43 @@ async def update_user(
     async with _unique_fields(db):
         for name, value in fields.items():
             setattr(user, name, value)
+    had_invitation = email_changed and await cancel_invitation(db, user.id)
     await db.commit()
-    if email_changed:
+    if user.is_active and (promoted or had_invitation):
+        # One link does both: it confirms the address and, for admins, sets the password.
+        await _try_to_invite(db, sender, user)
+    elif email_changed:
         await _try_to_send_confirmation(db, sender, user)
     return await get_user(db, user.id, include_deactivated=True)
+
+
+async def invite_user(db: AsyncSession, sender: EmailSender, user_id: uuid.UUID) -> User:
+    """Email someone a new invitation link (admins only). Commits.
+
+    For a member who hasn't accepted theirs yet (it expired, say), and for any admin: their
+    link sets a new password, so it's also how a forgotten password is reset. Unlike the
+    automatic invitations, errors reach the admin: no email, `EmailNotSent`, and a second
+    one within a minute, `InvitationRecentlySent`.
+    """
+    user = await get_user(db, user_id, include_deactivated=True)
+    if not user.is_active:
+        raise UserDeactivated()
+    if user.email_verified_at is not None and not sets_password(user):
+        raise InvitationNotNeeded()
+    now = datetime.now(UTC)
+    if user.invited_at is not None and now - user.invited_at < INVITATION_RESEND_COOLDOWN:
+        raise InvitationRecentlySent()
+    await send_invitation(db, sender, user)
+    return await get_user(db, user.id)
+
+
+async def _try_to_invite(db: AsyncSession, sender: EmailSender, user: User) -> None:
+    # The admin's change is already saved and shouldn't fail because of the email; they can
+    # send the invitation again (`invite_user`).
+    try:
+        await send_invitation(db, sender, user)
+    except (EmailNotSent, EmailNotConfigured, InvitationsNotConfigured) as exc:
+        logger.warning("No invitation was sent to user %s: %s", user.id, exc.code)
 
 
 async def _try_to_send_confirmation(db: AsyncSession, sender: EmailSender, user: User) -> None:
@@ -286,6 +340,7 @@ async def deactivate_user(db: AsyncSession, actor: User, user_id: uuid.UUID) -> 
     if user.deactivated_at is None:
         user.deactivated_at = datetime.now(UTC)
         await revoke_all_sessions(db, user.id)
+        await cancel_invitation(db, user.id)
         await db.commit()
     return await get_user(db, user.id, include_deactivated=True)
 
@@ -297,19 +352,6 @@ async def reactivate_user(db: AsyncSession, user_id: uuid.UUID) -> User:
         user.deactivated_at = None
         await db.commit()
     return await get_user(db, user.id, include_deactivated=True)
-
-
-async def set_admin_password(db: AsyncSession, user_id: uuid.UUID, password: str) -> None:
-    """Give an admin a new password (admins only, their own included). Commits.
-
-    For admins who have none yet (promoted or imported from v1) or who forgot theirs. Their
-    sessions stay as they are: the password is only checked when a new device logs in.
-    """
-    user = await get_user(db, user_id, include_deactivated=True)
-    if not user.role.at_least(Role.ADMIN):
-        raise NotAnAdmin()
-    user.password_hash = await hash_password(password)
-    await db.commit()
 
 
 async def set_sanity_author(db: AsyncSession, user: User, author_id: str | None) -> User:
@@ -353,9 +395,9 @@ async def seed_first_admin(
         raise FirstAdminError("Set FIRST_ADMIN_FAMILY_NAME and FIRST_ADMIN_SUB_FAMILY.")
     if "@" not in email:
         raise FirstAdminError("FIRST_ADMIN_EMAIL must be an email address.")
-    if len(password) < MIN_ADMIN_PASSWORD_LENGTH:
+    if len(password) < PASSWORD_MIN_LENGTH:
         raise FirstAdminError(
-            f"FIRST_ADMIN_PASSWORD must be at least {MIN_ADMIN_PASSWORD_LENGTH} characters."
+            f"FIRST_ADMIN_PASSWORD must be at least {PASSWORD_MIN_LENGTH} characters."
         )
 
     existing = await db.scalar(
