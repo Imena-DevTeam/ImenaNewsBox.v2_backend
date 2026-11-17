@@ -243,11 +243,12 @@ async def test_an_answered_request_cannot_be_answered_again(
     await _ask(client, asker)
     request_id = await _open_request_id(db_session, asker)
     headers = await login_as(approver)
-    await client.post(f"{REQUESTS}/{request_id}/decline", headers=headers)
+    declined = await client.post(f"{REQUESTS}/{request_id}/decline", headers=headers)
+    assert declined.status_code == 204, declined.text
 
     response = await client.post(f"{REQUESTS}/{request_id}/approve", headers=headers)
 
-    assert response.status_code == 404
+    assert response.status_code == 404, response.text
     assert response.json()["error"]["code"] == "reset_request_not_found"
 
 
@@ -349,7 +350,10 @@ async def test_after_an_answer_the_admin_can_ask_again(
     asker = await _admin(make_user)
     await _ask(client, asker)
     request_id = await _open_request_id(db_session, asker)
-    await client.post(f"{REQUESTS}/{request_id}/decline", headers=await login_as(decliner))
+    declined = await client.post(
+        f"{REQUESTS}/{request_id}/decline", headers=await login_as(decliner)
+    )
+    assert declined.status_code == 204, declined.text
 
     await _ask(client, asker)
 
