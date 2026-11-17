@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.models import EmailCode
 from app.core.email import CodePurpose
 from app.core.fakes import FakeEmailSender
+from app.core.security import CODE_LENGTH
 from app.users.models import Role, User
 
 MakeUser = Callable[..., Awaitable[User]]
@@ -101,7 +102,7 @@ async def test_a_wrong_code_does_not_confirm(
 
     response = await client.post(
         f"{USERS}/me/email/verify",
-        json={"code": f"{(int(code) + 1) % 1_000_000:06d}"},
+        json={"code": f"{(int(code) + 1) % 10**CODE_LENGTH:0{CODE_LENGTH}d}"},
         headers=await login_as(member),
     )
 
@@ -254,11 +255,11 @@ async def test_a_confirmed_email_needs_no_code(
 async def test_confirming_needs_a_login(client: AsyncClient) -> None:
     assert (await client.post(f"{USERS}/me/email/resend")).status_code == 401
     assert (
-        await client.post(f"{USERS}/me/email/verify", json={"code": "123456"})
+        await client.post(f"{USERS}/me/email/verify", json={"code": "12345"})
     ).status_code == 401
 
 
-@pytest.mark.parametrize("code", ["12345", "abcdef", ""])
+@pytest.mark.parametrize("code", ["1234", "123456", "abcde", ""])
 async def test_malformed_codes_are_rejected(
     client: AsyncClient, make_user: MakeUser, login_as: LoginAs, code: str
 ) -> None:

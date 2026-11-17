@@ -138,11 +138,11 @@ async def test_a_message_is_delivered(inbox: Inbox, plain_server: int) -> None:
 async def test_send_code_reaches_the_inbox_through_smtp(inbox: Inbox, plain_server: int) -> None:
     sender = SmtpEmailSender(_settings(plain_server))
 
-    await send_code(sender, to=TO, code="654321", purpose=CodePurpose.LOGIN)
+    await send_code(sender, to=TO, code="65432", purpose=CodePurpose.LOGIN)
 
     payload = inbox.only_message().get_payload(decode=True)
     assert isinstance(payload, bytes)
-    assert "654321" in payload.decode()
+    assert "65432" in payload.decode()
 
 
 async def test_non_ascii_text_and_names_survive(inbox: Inbox, plain_server: int) -> None:

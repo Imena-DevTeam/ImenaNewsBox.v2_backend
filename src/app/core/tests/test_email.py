@@ -15,7 +15,7 @@ from app.core.email import (
 from app.core.fakes import FakeEmailSender
 
 ADDRESS = "member@example.test"
-CODE = "042917"
+CODE = "04291"
 
 
 @pytest.mark.parametrize("purpose", list(CodePurpose))

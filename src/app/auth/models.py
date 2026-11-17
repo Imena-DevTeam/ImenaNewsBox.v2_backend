@@ -45,7 +45,7 @@ class UserSession(Base):
 
 
 class EmailCode(Base):
-    """A 6-digit code emailed to a user, stored only as an HMAC."""
+    """A 5-digit code emailed to a user, stored only as an HMAC."""
 
     __tablename__ = "email_codes"
 

@@ -9,7 +9,7 @@
   `REFRESH_TOKEN_SECRET`) is stored, so rotation and reuse detection are a plain lookup, and a
   leaked database can't be used to forge or recognise tokens.
 - **Email codes** are 6 random digits, stored as an HMAC keyed by `CODE_SECRET`. A keyed hash
-  matters here: a million possible codes could be brute-forced from a plain hash in seconds.
+  matters here: 100,000 possible codes could be brute-forced from a plain hash in seconds.
 - **Invitation tokens** are opaque random strings sent in an emailed link, stored as an HMAC
   keyed by `CODE_SECRET` (with its own prefix, so a hash can never match a code's).
 
@@ -38,7 +38,7 @@ from app.core.exceptions import TooManyRequests, Unauthorized
 
 JWT_ALGORITHM: Final = "HS256"
 ACCESS_TOKEN_TYPE: Final = "access"
-CODE_LENGTH: Final = 6
+CODE_LENGTH: Final = 5
 CODE_TTL: Final = timedelta(minutes=10)
 REFRESH_TOKEN_BYTES: Final = 32
 INVITATION_TOKEN_BYTES: Final = 32

@@ -14,8 +14,9 @@ from app.core.email import EmailDeliveryError, EmailMessage
 from app.core.google import GoogleIdentity, GoogleUnavailable, InvalidGoogleToken
 from app.core.media import MediaUnavailable, UploadedImage, check_document, check_image
 from app.core.sanity import SanityUnavailable
+from app.core.security import CODE_LENGTH
 
-_CODE = re.compile(r"\b(\d{6})\b")
+_CODE = re.compile(rf"\b(\d{{{CODE_LENGTH}}})\b")
 _INVITATION_LINK = re.compile(r"(\S+/invitation)#token=([A-Za-z0-9_-]+)")
 
 
@@ -39,7 +40,7 @@ class FakeEmailSender:
         messages = self.sent_to(address)
         assert messages, f"no email was sent to {address}"
         match = _CODE.search(messages[-1].text)
-        assert match, "the last email has no 6-digit code"
+        assert match, f"the last email has no {CODE_LENGTH}-digit code"
         return match.group(1)
 
     def last_invitation_link(self, address: str) -> tuple[str, str]:

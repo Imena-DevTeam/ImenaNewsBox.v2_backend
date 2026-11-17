@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
 REFRESH_GRACE: Final = timedelta(seconds=30)
 CODE_RESEND_COOLDOWN: Final = timedelta(seconds=60)
 CODE_MAX_ATTEMPTS: Final = 5
-# Caps guessing: 10 codes x 5 attempts is 50 guesses a day out of a million possible codes.
+# Caps guessing: 10 codes x 5 attempts is 50 guesses a day out of 100,000 possible codes.
 # It also stops one person's inbox (and our email quota) from being flooded.
 CODES_PER_DAY: Final = 10
 # The window `CODES_PER_DAY` counts over. Codes are deleted once they're older than this.

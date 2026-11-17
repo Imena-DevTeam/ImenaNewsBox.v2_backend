@@ -256,7 +256,7 @@ def test_refresh_token_hash_is_stable_and_keyed() -> None:
 # --- Email codes ---
 
 
-def test_codes_are_six_digits() -> None:
+def test_codes_are_five_digits() -> None:
     codes = [generate_code() for _ in range(200)]
 
     assert all(len(code) == CODE_LENGTH and code.isdigit() for code in codes)
@@ -269,7 +269,7 @@ def test_code_round_trip() -> None:
 
     assert code not in code_hash
     assert verify_code(code, code_hash)
-    assert not verify_code(f"{(int(code) + 1) % 10**CODE_LENGTH:06d}", code_hash)
+    assert not verify_code(f"{(int(code) + 1) % 10**CODE_LENGTH:0{CODE_LENGTH}d}", code_hash)
 
 
 def test_code_hash_uses_its_own_secret() -> None:
