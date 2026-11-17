@@ -119,3 +119,15 @@ class InvitationsNotConfigured(AppError):
     status_code = HTTPStatus.SERVICE_UNAVAILABLE
     code = "invitations_not_configured"
     default_message = "Invitations aren't set up on this server yet (FRONTEND_URL is empty)."
+
+
+class ResetRequestNotFound(NotFound):
+    """Unknown, already answered, or its admin was since demoted or deactivated."""
+
+    code = "reset_request_not_found"
+    default_message = "That password reset request doesn't exist or was already answered."
+
+
+class CannotAnswerOwnResetRequest(Forbidden):
+    code = "cannot_answer_own_reset_request"
+    default_message = "Another admin has to answer your own password reset request."

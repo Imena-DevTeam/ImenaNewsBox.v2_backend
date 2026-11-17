@@ -37,6 +37,14 @@ class CannotChangeOwnRole(Conflict):
     default_message = "You can't change your own role. Ask another admin."
 
 
+class TooFewAdmins(Conflict):
+    """A locked-out admin asks the other admins for a new password, so there must always be
+    another one to ask."""
+
+    code = "too_few_admins"
+    default_message = "The family needs at least two admins. Make someone else an admin first."
+
+
 class CannotDeactivateSelf(Conflict):
     code = "cannot_deactivate_self"
     default_message = "You can't deactivate yourself. Ask another admin."

@@ -36,7 +36,7 @@ sequenceDiagram
 
 ## Endpoints
 
-All under `/api/v1/auth`. The login, invitation, refresh and logout endpoints don't need an access token; the session endpoints do.
+All under `/api/v1/auth`. The login, invitation, refresh and logout endpoints, and asking for a password reset, don't need an access token; the session endpoints and answering a reset request do.
 
 ### `POST /login` — step one on a new device
 
@@ -209,6 +209,51 @@ Body: `{"token": "...", "password": "..."}`. Admins must send `password`, 8 to 2
 **Errors for both:** a wrong, used, replaced or expired link, or a deactivated user's, all get 400 `invalid_invitation` ("ask an admin to send a new one").
 
 > **Frontend:** build the `/invitation` page. Read the token from `location.hash`, call `check` to greet the person and decide whether to show a password field, then `accept`, and send them to the login page with their family name filled in. On `invalid_invitation`, tell them to ask an admin for a new link.
+
+## Forgotten admin passwords
+
+An admin who forgets their password can't log in, so they can't fix it themselves, and no admin ever sets another's password. Instead they **ask the other admins**, and one of them sends them a new invitation link, which sets a new password (decision 77):
+
+```mermaid
+sequenceDiagram
+    actor A as Locked-out admin
+    participant F as Frontend
+    participant API as API
+    actor B as Another admin
+
+    A->>F: "Forgot your password?" + family name
+    F->>API: POST /auth/reset-requests {family_name}
+    API-->>F: 202, the same answer for everyone
+    API->>B: email: A asked for a new password
+    B->>F: admin page: open requests
+    F->>API: POST /auth/reset-requests/{id}/approve
+    API->>A: invitation link, to the address on A's account
+    A->>F: /invitation: chooses a new password
+```
+
+- **The link only ever goes to the address already on the account.** Nobody types an address at reset time, so the admin who approves can't take the account over: they never see the link.
+- **Check before approving.** Anyone who knows an admin's family name can ask on their behalf, so the email asks the other admins to check with them first, and decline if they didn't ask. A declined request sends nothing.
+- **There's always someone to ask:** the API keeps at least two active admins (decision 78, `too_few_admins`).
+- **One open request per admin.** Asking again while one is open changes nothing and emails nobody, so the endpoint can't be used to flood the admins' inboxes. Once it's answered, they can ask again.
+- An answered request is kept for 30 days, then deleted on a later login (`delete_stale_rows`).
+
+### `POST /reset-requests` — ask for a new password
+
+No login. Body: `{"family_name": "..."}`, ignoring case and spaces around it. Always 202 `{message}`, the same for every family name, so it never says who is an admin. For an active admin without an open request, it records one and emails every other active admin, with a link to `<FRONTEND_URL>/admin`. Those emails go out **after** the response, so its timing doesn't say who is an admin either. One that fails is only logged: the request is saved, and admins see it on their page.
+
+### `GET /reset-requests` — the open requests
+
+Admins: other admins' open requests, oldest first, as `[{id, requested_at, user: {id, family_name, display_name, email}}]`. Never your own: another admin answers it. Requests from someone since demoted or deactivated aren't listed.
+
+### `POST /reset-requests/{id}/approve` — send the link
+
+Admins: emails the requester a new invitation link (the admin version, which sets a password) and closes the request. 204. Errors: 403 `cannot_answer_own_reset_request`, 404 `reset_request_not_found` (unknown, already answered, or from someone no longer an active admin), 429 `invitation_recently_sent` (a link went out less than a minute ago), 503 `email_not_sent`, `email_not_configured` or `invitations_not_configured`. When the email fails, the request stays open.
+
+### `POST /reset-requests/{id}/decline` — close it without sending anything
+
+Admins: for a request they didn't make. 204, and no email to anyone. Same 403 and 404 as approving.
+
+> **Frontend:** a "Forgot your password?" page on the admin login, which posts the family name and shows the answer as it is. On the admin page, list the open requests with **Send the link** and **Decline**, and show the address the link will go to.
 
 ## Why the Vercel proxy
 

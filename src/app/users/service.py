@@ -43,6 +43,7 @@ from app.users.exceptions import (
     FamilyNameTaken,
     InvitationNotNeeded,
     NotAWriter,
+    TooFewAdmins,
     UnknownPromotion,
     UnknownSubFamily,
     UserDeactivated,
@@ -52,6 +53,10 @@ from app.users.models import Promotion, Role, SubFamily, User
 from app.users.schemas import ProfileUpdate, UserCreate, UserUpdate
 
 logger = logging.getLogger(__name__)
+
+# A locked-out admin asks the others for a new password (`auth.service`, reset requests), so
+# there must always be another active admin to answer (decision 78).
+MIN_ADMINS: Final = 2
 
 
 # --- Reading ---
@@ -185,6 +190,7 @@ async def update_user(
     - Demoting someone to a plain member unlinks their Sanity author: only post
       writers have one. Their old posts keep their author.
     - Admins can't change their own role, so the last admin can't lock everyone out.
+    - An active admin can't be demoted while there are only `MIN_ADMINS` active admins.
     """
     user = await get_user(db, user_id, include_deactivated=True)
     fields = changes.model_dump(exclude_unset=True)
@@ -194,6 +200,8 @@ async def update_user(
     if new_role is not None and new_role != user.role:
         if user.id == actor.id:
             raise CannotChangeOwnRole()
+        if _counts_as_admin(user) and not new_role.at_least(Role.ADMIN):
+            await _keep_enough_admins(db)
         promoted = new_role.at_least(Role.ADMIN) and not user.role.at_least(Role.ADMIN)
         if not new_role.at_least(Role.ADMIN):
             fields["password_hash"] = None
@@ -332,17 +340,41 @@ async def deactivate_user(db: AsyncSession, actor: User, user_id: uuid.UUID) -> 
     """Soft-delete a user: block logins and sign them out everywhere, at once. Commits.
 
     Their family name and email stay reserved, and their wishes are kept. Doing it again
-    changes nothing. Admins can't deactivate themselves.
+    changes nothing. Admins can't deactivate themselves, nor an admin while there are only
+    `MIN_ADMINS` active admins.
     """
     user = await get_user(db, user_id, include_deactivated=True)
     if user.id == actor.id:
         raise CannotDeactivateSelf()
+    if _counts_as_admin(user):
+        await _keep_enough_admins(db)
     if user.deactivated_at is None:
         user.deactivated_at = datetime.now(UTC)
         await revoke_all_sessions(db, user.id)
         await cancel_invitation(db, user.id)
         await db.commit()
     return await get_user(db, user.id, include_deactivated=True)
+
+
+def _counts_as_admin(user: User) -> bool:
+    """Whether `user` counts towards `MIN_ADMINS`: an active admin."""
+    return user.is_active and user.role.at_least(Role.ADMIN)
+
+
+async def _keep_enough_admins(db: AsyncSession) -> None:
+    """Raise `TooFewAdmins` if one admin losing the role would leave fewer than `MIN_ADMINS`.
+
+    Locks the active admins' rows (in id order, so two of these never deadlock) until the
+    caller commits, so two admins removing each other at the same moment can't both succeed.
+    """
+    admin_ids = await db.scalars(
+        select(User.id)
+        .where(User.role == Role.ADMIN, User.deactivated_at.is_(None))
+        .order_by(User.id)
+        .with_for_update()
+    )
+    if len(admin_ids.all()) <= MIN_ADMINS:
+        raise TooFewAdmins()
 
 
 async def reactivate_user(db: AsyncSession, user_id: uuid.UUID) -> User:

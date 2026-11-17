@@ -9,28 +9,43 @@ from typing import Final
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import contains_eager
 
 from app.auth.dependencies import require_owner_or_admin
 from app.auth.exceptions import (
     AdminPasswordRequired,
+    CannotAnswerOwnResetRequest,
     CodeRecentlySent,
     GoogleAccountNotRegistered,
     InvalidCode,
     InvalidCredentials,
     InvalidInvitation,
+    InvitationRecentlySent,
     InvitationsNotConfigured,
     PasswordRequired,
     RefreshConflict,
+    ResetRequestNotFound,
     SessionEnded,
     SessionNotFound,
     TooManyCodes,
 )
-from app.auth.models import DEVICE_LABEL_MAX_LENGTH, EmailCode, Invitation, UserSession
+from app.auth.models import (
+    DEVICE_LABEL_MAX_LENGTH,
+    EmailCode,
+    Invitation,
+    PasswordResetRequest,
+    ResetOutcome,
+    UserSession,
+)
 from app.core.config import get_settings
 from app.core.email import (
     CodePurpose,
+    EmailMessage,
+    EmailNotConfigured,
+    EmailNotSent,
     EmailSender,
     build_invitation_email,
+    build_reset_request_email,
     send_code,
     send_email,
 )
@@ -71,6 +86,10 @@ INVITATION_RESEND_COOLDOWN: Final = timedelta(seconds=60)
 # The frontend page that invitation links open. The token goes after `#`, which browsers
 # never send to a server, so it stays out of the frontend host's logs.
 INVITATION_PAGE: Final = "/invitation"
+# The frontend page where admins answer password reset requests.
+ADMIN_PAGE: Final = "/admin"
+# Answered reset requests are kept this long, so a recent one can still be looked into.
+RESET_REQUEST_RETENTION: Final = timedelta(days=30)
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +300,143 @@ async def accept_invitation(db: AsyncSession, token: str, *, password: str | Non
     return user
 
 
+# --- Admins' password reset requests ---
+
+
+def _is_active_admin(user: User) -> bool:
+    return user.is_active and user.role.at_least(Role.ADMIN)
+
+
+async def request_password_reset(db: AsyncSession, *, family_name: str) -> list[EmailMessage]:
+    """An admin who can't log in asks the other admins for a new password. Commits.
+
+    For an active admin with no open request, records one and returns an email for each other
+    active admin. Everyone else (members, unknown or deactivated users, an admin who already
+    asked) changes nothing and gets an empty list. The router sends the emails after the
+    response, so its timing doesn't say who is an admin either.
+    """
+    user = await find_active_user(db, family_name)
+    if user is None or not _is_active_admin(user):
+        return []
+    created = await db.scalar(
+        insert(PasswordResetRequest)
+        .values(id=uuid.uuid7(), user_id=user.id, created_at=datetime.now(UTC))
+        .on_conflict_do_nothing(
+            index_elements=[PasswordResetRequest.user_id],
+            index_where=PasswordResetRequest.resolved_at.is_(None),
+        )
+        .returning(PasswordResetRequest.id)
+    )
+    await db.commit()
+    if created is None:
+        return []
+    others = await db.scalars(
+        select(User).where(
+            User.role == Role.ADMIN, User.deactivated_at.is_(None), User.id != user.id
+        )
+    )
+    frontend_url = get_settings().frontend_url
+    link = f"{frontend_url}{ADMIN_PAGE}" if frontend_url else None
+    return [
+        build_reset_request_email(
+            to=admin.email,
+            display_name=admin.display_name,
+            requester_name=user.display_name,
+            requester_family_name=user.family_name,
+            link=link,
+        )
+        for admin in others
+    ]
+
+
+async def notify_admins(sender: EmailSender, message: EmailMessage) -> None:
+    """Send one reset request email after the response. A failure is only logged: the request
+    is saved either way, and admins see it on their page."""
+    try:
+        await send_email(sender, message, kind="reset request")
+    except (EmailNotSent, EmailNotConfigured) as exc:
+        logger.warning("A reset request email was not sent: %s", exc.code)
+
+
+async def list_reset_requests(db: AsyncSession, viewer: User) -> list[PasswordResetRequest]:
+    """Open requests from active admins, oldest first, without the viewer's own."""
+    rows = await db.scalars(
+        select(PasswordResetRequest)
+        .join(User, PasswordResetRequest.user_id == User.id)
+        .where(
+            PasswordResetRequest.resolved_at.is_(None),
+            PasswordResetRequest.user_id != viewer.id,
+            User.role == Role.ADMIN,
+            User.deactivated_at.is_(None),
+        )
+        .options(contains_eager(PasswordResetRequest.user))
+        .order_by(PasswordResetRequest.created_at)
+    )
+    return list(rows)
+
+
+async def _open_reset_request(
+    db: AsyncSession, actor: User, request_id: uuid.UUID
+) -> tuple[PasswordResetRequest, User]:
+    row = (
+        await db.execute(
+            select(PasswordResetRequest, User)
+            .join(User, PasswordResetRequest.user_id == User.id)
+            .where(
+                PasswordResetRequest.id == request_id,
+                PasswordResetRequest.resolved_at.is_(None),
+            )
+            # So two admins can't answer the same request at the same moment.
+            .with_for_update(of=PasswordResetRequest)
+            .execution_options(populate_existing=True)
+        )
+    ).first()
+    if row is None:
+        raise ResetRequestNotFound()
+    request, user = row
+    if user.id == actor.id:
+        raise CannotAnswerOwnResetRequest()
+    if not _is_active_admin(user):
+        raise ResetRequestNotFound()
+    return request, user
+
+
+def _resolve(request: PasswordResetRequest, actor: User, outcome: ResetOutcome) -> None:
+    request.resolved_at = datetime.now(UTC)
+    request.resolved_by_id = actor.id
+    request.outcome = outcome
+
+
+async def approve_reset_request(
+    db: AsyncSession, sender: EmailSender, actor: User, request_id: uuid.UUID
+) -> None:
+    """Email the requester a new invitation link, which sets a new password, to the address
+    already on their account, and close the request. Commits.
+
+    Raises `ResetRequestNotFound`, `CannotAnswerOwnResetRequest`, `InvitationRecentlySent` (a
+    link went out less than a minute ago) and the email errors of `send_invitation`. When the
+    email fails, the request stays open.
+    """
+    request, user = await _open_reset_request(db, actor, request_id)
+    if (
+        user.invited_at is not None
+        and datetime.now(UTC) - user.invited_at < INVITATION_RESEND_COOLDOWN
+    ):
+        raise InvitationRecentlySent()
+    # Commits the new link. The request is closed only once the email has gone.
+    await send_invitation(db, sender, user)
+    _resolve(request, actor, ResetOutcome.SENT)
+    await db.commit()
+
+
+async def decline_reset_request(db: AsyncSession, actor: User, request_id: uuid.UUID) -> None:
+    """Close a request without sending anything. Commits. Raises like `approve_reset_request`
+    minus the email errors."""
+    request, _ = await _open_reset_request(db, actor, request_id)
+    _resolve(request, actor, ResetOutcome.DECLINED)
+    await db.commit()
+
+
 # --- Logging in ---
 
 
@@ -329,6 +485,11 @@ async def delete_stale_rows(db: AsyncSession) -> None:
     """
     now = datetime.now(UTC)
     await db.execute(delete(EmailCode).where(EmailCode.created_at < now - CODE_LIMIT_WINDOW))
+    await db.execute(
+        delete(PasswordResetRequest).where(
+            PasswordResetRequest.resolved_at < now - RESET_REQUEST_RETENTION
+        )
+    )
     ended_before = now - ENDED_SESSION_RETENTION
     await db.execute(
         delete(UserSession).where(

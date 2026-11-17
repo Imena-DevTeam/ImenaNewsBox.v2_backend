@@ -159,6 +159,8 @@ async def test_a_demoted_admin_loses_their_password(
     admin_headers: dict[str, str],
 ) -> None:
     other_admin = await make_user(role=Role.ADMIN, password=PASSWORD)
+    # A third admin, so the two-admin floor (decision 78) still holds afterwards.
+    await make_user(role=Role.ADMIN, password=PASSWORD)
 
     response = await client.patch(
         f"{USERS}/{other_admin.id}", json={"role": "social_media_manager"}, headers=admin_headers

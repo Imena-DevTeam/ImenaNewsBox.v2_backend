@@ -165,6 +165,25 @@ def build_invitation_email(
     return EmailMessage(to=to, subject=subject, text=text)
 
 
+def build_reset_request_email(
+    *, to: str, display_name: str, requester_name: str, requester_family_name: str, link: str | None
+) -> EmailMessage:
+    """Tells an admin that another admin can't log in and asked for a new password."""
+    where = "Open the admin page to answer."
+    if link:
+        where = f"Open the admin page to answer:\n\n{link}"
+    text = (
+        f"Hello {display_name},\n\n"
+        f"{requester_name} ({requester_family_name}) can't log in and asked for a new admin "
+        f"password.\n\n{where}\n\n"
+        "Check with them first that they really asked. Sending the link emails it to the "
+        "address already on their account, never anywhere else. If they didn't ask, decline it."
+    )
+    return EmailMessage(
+        to=to, subject=f"{requester_name} asked for a new admin password", text=text
+    )
+
+
 async def send_email(sender: EmailSender, message: EmailMessage, *, kind: str) -> None:
     """Send an email now, with a short timeout and one retry. `kind` only names it in the
     logs ("login code", "invitation"). Raises `EmailNotSent` if both attempts fail."""

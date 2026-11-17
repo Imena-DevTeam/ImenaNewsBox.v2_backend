@@ -344,6 +344,8 @@ async def test_writers_keep_their_author_between_writer_roles(
     end: str,
 ) -> None:
     writer = await make_user(role=start, sanity_author_id=AMATA["id"])
+    # A third admin, so demoting an admin writer keeps the two-admin floor (decision 78).
+    await make_user(role=Role.ADMIN)
 
     response = await client.patch(
         f"/api/v1/users/{writer.id}", json={"role": end}, headers=admin_headers
