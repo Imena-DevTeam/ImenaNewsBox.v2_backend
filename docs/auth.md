@@ -6,7 +6,7 @@ A family name is easy to know, so on its own it must **never** be enough to get 
 
 In v2, **each new device has to prove itself once**, and after that it stays logged in:
 
-- **Members and social media managers:** family name, then a **6-digit code emailed** to their address, **or "Sign in with Google"** with the Google account that uses that address.
+- **Members and social media managers:** family name, then a **5-digit code emailed** to their address, **or "Sign in with Google"** with the Google account that uses that address.
 - **Admins:** their **password** plus a second proof: either family name + password, then an emailed code, or password + Google (the Google account already says who they are, so no family name is needed).
 
 Google proves the same thing a code does (that the person owns the email address), so it's an alternative to the code, never a way around it. It works on a first login too, and like a first code it marks the email as verified. No login method ever creates an account: admins register every member, and each new member is emailed an invitation link first (see [Invitations](#invitations)).
@@ -27,7 +27,7 @@ sequenceDiagram
     A->>A: find active user, create hashed code (10 min, 5 attempts)
     A->>E: send code
     A-->>F: 200 "code sent"
-    M->>F: enters 6-digit code
+    M->>F: enters 5-digit code
     F->>A: POST /api/v1/auth/verify {family_name, code}
     A->>A: check code, create user_sessions row
     A-->>F: access token (body) + refresh token (HttpOnly cookie)
@@ -57,7 +57,7 @@ The 200 is identical in every case, so the endpoint doesn't say which family nam
 
 ### `POST /verify` — step two: the code logs the device in
 
-Body: `{"family_name": "...", "code": "123456"}`. Spaces around the code are ignored; anything other than 6 ASCII digits is a 422.
+Body: `{"family_name": "...", "code": "12345"}`. Spaces around the code are ignored; anything other than 5 ASCII digits is a 422.
 
 - **Right code:** 200 `{"access_token", "token_type": "bearer", "expires_in": 900}`, plus the refresh cookie (see [Tokens](#tokens)). A new `user_sessions` row is created, labelled from the `User-Agent` (e.g. "Safari on iPhone"), and the first successful code sets `email_verified_at`.
 - **Anything else** (wrong, used, expired, out of attempts, an older code, someone else's code, an unknown or deactivated user): 401 `invalid_code`, and no cookie.
@@ -153,11 +153,11 @@ Needs an access token. Revokes that session: its refresh token stops working at 
 
 ## Emailed codes
 
-- **Format and limits:** 6 digits, valid for 10 minutes, single-use, 5 attempts.
+- **Format and limits:** 5 digits, valid for 10 minutes, single-use, 5 attempts.
 - **Only the newest code works.** Asking for a new code makes any earlier one useless.
-- **Resends:** one per 60 seconds (429 `code_recently_sent`), and at most **10 codes per user in any 24 hours** (429 `too_many_codes`). Ten codes with five attempts each is 50 guesses a day out of a million possible codes, and it stops anyone flooding a member's inbox or using up the email quota.
+- **Resends:** one per 60 seconds (429 `code_recently_sent`), and at most **10 codes per user in any 24 hours** (429 `too_many_codes`). Ten codes with five attempts each is 50 guesses a day out of 100,000 possible codes (a 1 in 2,000 chance a day; see decision 76), and it stops anyone flooding a member's inbox or using up the email quota.
 - **Wrong, used, expired or exhausted** codes all get the same 401 `invalid_code`, so a guesser learns nothing.
-- **Storage:** codes are stored **hashed**, never in plain text. The hash is keyed by `CODE_SECRET`, because there are only a million possible codes: a plain hash could be reversed in seconds.
+- **Storage:** codes are stored **hashed**, never in plain text. The hash is keyed by `CODE_SECRET`, because there are only 100,000 possible codes: a plain hash could be reversed in seconds.
 - **Throttling** is stored in Postgres (there's no Redis).
 - **Cleanup:** there's no scheduler, so every login request deletes codes older than 24 hours and sessions that expired or were revoked more than 7 days ago.
 - **Sending:** codes are sent **during the request**. If the email provider fails, the user sees an error right away and can try again, instead of waiting for an email that never arrives. A code that couldn't be sent is deleted, so it doesn't trigger the 60-second cooldown.

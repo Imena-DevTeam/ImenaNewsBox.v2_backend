@@ -12,7 +12,7 @@ Backend API for Imena NewsBox, a private family platform for member profiles, bi
 
 - Python 3.14, **uv** (`pyproject.toml` + `uv.lock`), FastAPI, Pydantic v2, pydantic-settings
 - **Neon** Postgres via **async** SQLAlchemy 2.x and Alembic (async `env.py`). The dependency is `sqlalchemy[asyncio]`, because 2.1 no longer installs `greenlet` by default. Use `AsyncSession`, `create_async_engine` and `postgresql+psycopg://` (psycopg 3).
-- Auth (`core/security.py`): PyJWT access tokens (`ACCESS_TOKEN_SECRET`), opaque random refresh tokens stored as an HMAC (`REFRESH_TOKEN_SECRET`), 6-digit codes stored as an HMAC (`CODE_SECRET`), and pwdlib[argon2] for admin passwords (Argon2id with OWASP's 19 MiB settings, run in a thread, at most 2 at once; a check that waits over 5 s gets 429 `password_check_busy`)
+- Auth (`core/security.py`): PyJWT access tokens (`ACCESS_TOKEN_SECRET`), opaque random refresh tokens stored as an HMAC (`REFRESH_TOKEN_SECRET`), 5-digit codes stored as an HMAC (`CODE_SECRET`), and pwdlib[argon2] for admin passwords (Argon2id with OWASP's 19 MiB settings, run in a thread, at most 2 at once; a check that waits over 5 s gets 429 `password_check_busy`)
 - Background work: FastAPI `BackgroundTasks` only, for fire-and-forget cleanup. **No Celery, no Redis, no scheduler.**
 - Caching: `cachetools`, in-process (see "Caching")
 - External services:
@@ -103,7 +103,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - Users can list and revoke their own sessions, and admins can revoke anyone's. Knowing a family name is never enough on its own to get tokens.
   - **Every authenticated request loads the user from the DB** in one query (by primary key, joined to the token's session), and rejects deactivated users and revoked or expired sessions. Role comes from the DB row, not the token. **Never cache this lookup**, so deactivation, session revocation and role changes take effect immediately.
 - **Email verification:**
-  - Codes are 6 digits, expire after 10 minutes, are single-use and stored hashed, and allow 5 attempts with a 60-second resend cooldown and at most 10 codes per user and purpose in 24 hours. Only the newest code works. Use `issue_code` / `consume_code` in `auth/service.py` for every purpose.
+  - Codes are 5 digits, expire after 10 minutes, are single-use and stored hashed, and allow 5 attempts with a 60-second resend cooldown and at most 10 codes per user and purpose in 24 hours. Only the newest code works. Use `issue_code` / `consume_code` in `auth/service.py` for every purpose.
   - Throttling is stored in Postgres, not Redis.
   - The first successful code, accepted invitation or Google login sets `email_verified_at`. When an admin changes a user's email, `email_verified_at` is cleared and a code is sent to the new address (a new invitation instead, if theirs was unaccepted). The user confirms the code with an authenticated endpoint.
 - **Wishes** have a sender, a **recipient** and the birthday year, and are kept as history; there's no purge.

@@ -10,7 +10,7 @@ from app.auth.models import EmailCode, UserSession
 from app.auth.router import REFRESH_COOKIE_PATH
 from app.auth.tests.helpers import RequestCode, refresh_cookie
 from app.core.config import get_settings
-from app.core.security import decode_access_token, hash_refresh_token
+from app.core.security import CODE_LENGTH, decode_access_token, hash_refresh_token
 from app.main import app
 from app.users.models import Role, User
 
@@ -23,7 +23,7 @@ IPHONE = (
 
 
 def _wrong(code: str) -> str:
-    return f"{(int(code) + 1) % 1_000_000:06d}"
+    return f"{(int(code) + 1) % 10**CODE_LENGTH:0{CODE_LENGTH}d}"
 
 
 async def test_the_right_code_logs_the_device_in(
@@ -165,7 +165,7 @@ async def test_a_code_is_tied_to_its_user(
 
 
 async def test_an_unknown_family_name_is_refused(client: AsyncClient) -> None:
-    response = await client.post(VERIFY, json={"family_name": "Nobody", "code": "123456"})
+    response = await client.post(VERIFY, json={"family_name": "Nobody", "code": "12345"})
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "invalid_code"
@@ -187,7 +187,7 @@ async def test_a_user_deactivated_after_the_email_cannot_log_in(
     assert response.json()["error"]["code"] == "invalid_code"
 
 
-@pytest.mark.parametrize("code", ["12345", "1234567", "abcdef", "١٢٣٤٥٦", ""])
+@pytest.mark.parametrize("code", ["1234", "123456", "abcde", "١٢٣٤٥", ""])
 async def test_malformed_codes_are_rejected(client: AsyncClient, code: str) -> None:
     response = await client.post(VERIFY, json={"family_name": "Mugisha", "code": code})
 

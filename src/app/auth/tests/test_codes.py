@@ -10,7 +10,7 @@ from app.auth.models import EmailCode
 from app.auth.service import CODE_MAX_ATTEMPTS, CODES_PER_DAY, consume_code, issue_code
 from app.core.email import CodePurpose, EmailNotConfigured, EmailNotSent, NotConfiguredEmailSender
 from app.core.fakes import FakeEmailSender
-from app.core.security import CODE_TTL, hash_code
+from app.core.security import CODE_LENGTH, CODE_TTL, hash_code
 from app.users.models import User
 
 MakeUser = Callable[..., Awaitable[User]]
@@ -179,7 +179,7 @@ async def test_wrong_codes_are_counted(
 ) -> None:
     user = await make_user()
     code = await _issue(db_session, fake_email, user)
-    wrong = f"{(int(code) + 1) % 1_000_000:06d}"
+    wrong = f"{(int(code) + 1) % 10**CODE_LENGTH:0{CODE_LENGTH}d}"
 
     with pytest.raises(InvalidCode):
         await consume_code(db_session, user, LOGIN, wrong)
@@ -195,7 +195,7 @@ async def test_the_code_dies_after_too_many_wrong_attempts(
 ) -> None:
     user = await make_user()
     code = await _issue(db_session, fake_email, user)
-    wrong = f"{(int(code) + 1) % 1_000_000:06d}"
+    wrong = f"{(int(code) + 1) % 10**CODE_LENGTH:0{CODE_LENGTH}d}"
     for _ in range(CODE_MAX_ATTEMPTS):
         with pytest.raises(InvalidCode):
             await consume_code(db_session, user, LOGIN, wrong)
@@ -241,4 +241,4 @@ async def test_a_code_only_works_for_its_purpose(
 
 async def test_no_code_at_all_is_refused(db_session: AsyncSession, make_user: MakeUser) -> None:
     with pytest.raises(InvalidCode):
-        await consume_code(db_session, await make_user(), LOGIN, "123456")
+        await consume_code(db_session, await make_user(), LOGIN, "12345")
