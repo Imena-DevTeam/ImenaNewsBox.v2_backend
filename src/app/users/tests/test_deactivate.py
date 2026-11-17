@@ -127,6 +127,8 @@ async def test_admins_can_deactivate_other_admins(
     client: AsyncClient, make_user: MakeUser, admin_headers: dict[str, str]
 ) -> None:
     other_admin = await make_user(role=Role.ADMIN, password="another long password")
+    # A third admin, so the two-admin floor (decision 78) still holds afterwards.
+    await make_user(role=Role.ADMIN, password="a third long password")
 
     response = await client.post(f"{USERS}/{other_admin.id}/deactivate", headers=admin_headers)
 

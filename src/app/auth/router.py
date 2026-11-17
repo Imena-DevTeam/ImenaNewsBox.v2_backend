@@ -4,10 +4,11 @@ import uuid
 from http import HTTPStatus
 from typing import Annotated, Final
 
-from fastapi import APIRouter, Cookie, Depends, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Query, Request, Response
 
 from app.auth import service
 from app.auth.dependencies import (
+    AdminUser,
     CurrentAuth,
     CurrentUser,
     require_allowed_origin,
@@ -22,6 +23,9 @@ from app.auth.schemas import (
     InvitationCheck,
     InvitationRead,
     LoginRequest,
+    ResetRequestCreate,
+    ResetRequested,
+    ResetRequestRead,
     SessionListParams,
     SessionRead,
     VerifyRequest,
@@ -129,6 +133,47 @@ async def accept_invitation(body: InvitationAccept, db: DbSession) -> None:
         body.token.get_secret_value(),
         password=body.password.get_secret_value() if body.password else None,
     )
+
+
+@router.post("/reset-requests", status_code=HTTPStatus.ACCEPTED)
+async def request_password_reset(
+    body: ResetRequestCreate, db: DbSession, sender: Email, background: BackgroundTasks
+) -> ResetRequested:
+    """An admin who can't log in asks the other admins for a new password. No login. The
+    same answer whoever asks; the other admins are emailed after the response."""
+    for message in await service.request_password_reset(db, family_name=body.family_name):
+        background.add_task(service.notify_admins, sender, message)
+    return ResetRequested(
+        message=(
+            "If that's an admin's family name, the other admins have been asked. When one of "
+            "them answers, a link to set a new password arrives at the email address on the "
+            "account."
+        )
+    )
+
+
+@router.get("/reset-requests")
+async def list_reset_requests(admin: AdminUser, db: DbSession) -> list[ResetRequestRead]:
+    """Admins: other admins' open password reset requests, oldest first. Never your own, which
+    another admin answers. Short, so not paginated."""
+    requests = await service.list_reset_requests(db, admin)
+    return [ResetRequestRead.model_validate(request) for request in requests]
+
+
+@router.post("/reset-requests/{request_id}/approve", status_code=HTTPStatus.NO_CONTENT)
+async def approve_reset_request(
+    request_id: uuid.UUID, admin: AdminUser, db: DbSession, sender: Email
+) -> None:
+    """Admins: email the requester a link to set a new password, to the address already on
+    their account, and close the request. Never your own."""
+    await service.approve_reset_request(db, sender, admin, request_id)
+
+
+@router.post("/reset-requests/{request_id}/decline", status_code=HTTPStatus.NO_CONTENT)
+async def decline_reset_request(request_id: uuid.UUID, admin: AdminUser, db: DbSession) -> None:
+    """Admins: close a request without sending anything, e.g. when they didn't ask. Never your
+    own."""
+    await service.decline_reset_request(db, admin, request_id)
 
 
 @router.post("/refresh", dependencies=[Depends(require_allowed_origin)])

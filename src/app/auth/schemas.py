@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, Field, SecretStr, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints
 
 from app.core.google import ID_TOKEN_MAX_LENGTH
 from app.core.pagination import PageParams
@@ -110,3 +110,32 @@ class SessionListParams(PageParams):
     user_id: uuid.UUID | None = Field(
         default=None, description="Admins only: list this user's sessions instead of yours."
     )
+
+
+class ResetRequestCreate(BaseModel):
+    """An admin who can't log in, asking the others for a new password."""
+
+    family_name: FamilyName
+
+
+class ResetRequested(BaseModel):
+    """The same answer whoever asks, so it never says who is an admin."""
+
+    message: str
+
+
+class ResetRequester(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    family_name: str
+    display_name: str
+    email: str = Field(description="Where the link goes: the address already on the account.")
+
+
+class ResetRequestRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    requested_at: datetime = Field(validation_alias="created_at")
+    user: ResetRequester
