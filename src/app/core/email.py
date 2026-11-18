@@ -18,10 +18,7 @@ from enum import StrEnum
 from http import HTTPStatus
 from typing import Final, Protocol
 
-try:
-    import aiosmtplib
-except ModuleNotFoundError:  # Allow non-SMTP code to load when the optional dependency is absent.
-    aiosmtplib = None
+import aiosmtplib
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
