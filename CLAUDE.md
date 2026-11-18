@@ -125,7 +125,7 @@ docs/                    # human-facing docs: architecture, domain, auth, infras
   - **Family resources** (`/api/v1/resources`, decision 75): **PDFs only**, at most 10 MB, checked by content. Stored as **private** (`authenticated` raw) files whose signed URL never leaves the server: `GET /resources/{id}/file` streams them to logged-in members (`MediaStore.open_document`). Never return a document URL or public ID to a client.
   - Every member reads documents; **any social media manager or admin** uploads, edits, replaces or deletes any of them (no ownership rule). The categories are a fixed enum (`ResourceCategory`); there's no view count.
 - **Background work is minimal:**
-  - **Code emails are sent during the request,** with a short timeout and one retry. On failure the user gets a clear error and can resend.
+  - **Code emails are sent during the request,** within a 25-second budget (`SEND_BUDGET_SECONDS`), retried once if time is left (decision 43). Frontends wait longer than that for every call that sends an email. On failure the user gets a clear error and can resend.
   - **Old Cloudinary photo and document deletes** run as `BackgroundTasks`. A lost delete only leaves an unused file behind.
   - **Expired codes and sessions** are ignored by their expiry time, and old rows are deleted on every `POST /auth/login` (`delete_stale_rows`): codes after 24 hours (the daily code limit counts them), sessions 7 days after they expire or are revoked. No scheduler is needed.
   - **There's no jobs endpoint or scheduled workflow yet.** Add a scheduled GitHub Actions workflow only when a real scheduled feature arrives (e.g. birthday emails).

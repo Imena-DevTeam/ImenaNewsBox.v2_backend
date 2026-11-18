@@ -44,7 +44,7 @@ There are no workers. The little background work we have is handled like this:
 
 | Task | How |
 |---|---|
-| Sending login codes | During the request, with a short timeout and one retry |
+| Sending login codes | During the request, within a 25-second budget, retried once if time is left |
 | Deleting a replaced profile photo, or a replaced or deleted document, from Cloudinary | FastAPI `BackgroundTasks` (if it's ever lost, an unused file is left behind; that's harmless) |
 | Cleaning up expired codes and sessions | Expired rows are ignored by their expiry time, and old rows are deleted during login. No scheduler needed. |
 
