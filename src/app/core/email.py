@@ -1,7 +1,8 @@
 """Email sending, over SMTP with `aiosmtplib`, behind this module.
 
 Services call `send_code(sender, ...)`, which builds the message and sends it during the
-request with a short timeout and one retry. A sender only has to implement `EmailSender`:
+request, within one time budget that a retry also has to fit in (decision 43). A sender
+only has to implement `EmailSender`:
 send one message, and raise `EmailDeliveryError` when that fails. `aiosmtplib` is async, so
 a slow mail server never holds up other requests (the standard `smtplib` would).
 
@@ -25,7 +26,13 @@ from app.core.security import CODE_TTL
 
 logger = logging.getLogger(__name__)
 
-SEND_TIMEOUT_SECONDS: Final = 5.0
+# All the time one email gets, every attempt included. One SMTP send is several round trips
+# (connect, STARTTLS, EHLO, AUTH, MAIL, RCPT, DATA), and over a slow link to Gmail that was
+# measured at about 7.5 s before AUTH alone, so a send can take 15-20 s (decision 43).
+SEND_BUDGET_SECONDS: Final = 25.0
+# Any one SMTP command, so a server that goes silent can't use up the whole budget and
+# leave no time to retry.
+SMTP_COMMAND_TIMEOUT_SECONDS: Final = 15.0
 SEND_ATTEMPTS: Final = 2
 
 
@@ -101,7 +108,7 @@ class SmtpEmailSender:
                 password=settings.smtp_password.get_secret_value() or None,
                 use_tls=settings.smtp_security == "tls",
                 start_tls=settings.smtp_security == "starttls",
-                timeout=SEND_TIMEOUT_SECONDS,
+                timeout=SMTP_COMMAND_TIMEOUT_SECONDS,
             )
         except (aiosmtplib.SMTPException, OSError, ValueError) as exc:
             # Only the error's type: SMTP replies can repeat the recipient's address.
@@ -185,20 +192,32 @@ def build_reset_request_email(
 
 
 async def send_email(sender: EmailSender, message: EmailMessage, *, kind: str) -> None:
-    """Send an email now, with a short timeout and one retry. `kind` only names it in the
-    logs ("login code", "invitation"). Raises `EmailNotSent` if both attempts fail."""
+    """Send an email now, within `SEND_BUDGET_SECONDS` for every attempt together. A failed
+    attempt is tried once more if the budget isn't spent; a slow one is not, because the
+    time is gone. `kind` only names it in the logs ("login code", "invitation"). Raises
+    `EmailNotSent` when no attempt got through."""
+    deadline = asyncio.get_running_loop().time() + SEND_BUDGET_SECONDS
     for attempt in range(1, SEND_ATTEMPTS + 1):
         try:
-            async with asyncio.timeout(SEND_TIMEOUT_SECONDS):
+            async with asyncio.timeout_at(deadline):
                 await sender.send(message)
             return
-        except (EmailDeliveryError, TimeoutError) as exc:
+        except TimeoutError:
+            logger.warning(
+                "Sending a %s email ran out of time (attempt %d of %d, %.0f s in all)",
+                kind,
+                attempt,
+                SEND_ATTEMPTS,
+                SEND_BUDGET_SECONDS,
+            )
+            break
+        except EmailDeliveryError as exc:
             logger.warning(
                 "Sending a %s email failed (attempt %d of %d): %s",
                 kind,
                 attempt,
                 SEND_ATTEMPTS,
-                type(exc).__name__,
+                exc,
             )
     raise EmailNotSent()
 

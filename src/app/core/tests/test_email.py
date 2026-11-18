@@ -5,6 +5,7 @@ import pytest
 
 from app.core.email import (
     CodePurpose,
+    EmailDeliveryError,
     EmailMessage,
     EmailNotConfigured,
     EmailNotSent,
@@ -56,8 +57,12 @@ async def test_send_code_gives_up_after_two_failures() -> None:
     assert sender.sent == []
 
 
-async def test_send_code_times_out_a_slow_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.core.email.SEND_TIMEOUT_SECONDS", 0.01)
+async def test_send_code_times_out_a_slow_provider_without_retrying(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A slow server has used up the budget; a second attempt would only make the user
+    # wait twice as long for the same error.
+    monkeypatch.setattr("app.core.email.SEND_BUDGET_SECONDS", 0.01)
     attempts = 0
 
     class SlowSender:
@@ -69,7 +74,51 @@ async def test_send_code_times_out_a_slow_provider(monkeypatch: pytest.MonkeyPat
     with pytest.raises(EmailNotSent):
         await send_code(SlowSender(), to=ADDRESS, code=CODE, purpose=CodePurpose.LOGIN)
 
+    assert attempts == 1
+
+
+async def test_a_slow_send_inside_the_budget_gets_through(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The reason for the budget: a send over a slow link takes many seconds, and the old
+    # five-second limit per attempt cut every one of them off.
+    monkeypatch.setattr("app.core.email.SEND_BUDGET_SECONDS", 0.5)
+    sender = FakeEmailSender()
+
+    class SlowButWorking:
+        async def send(self, message: EmailMessage) -> None:
+            await asyncio.sleep(0.1)
+            await sender.send(message)
+
+    await send_code(SlowButWorking(), to=ADDRESS, code=CODE, purpose=CodePurpose.LOGIN)
+
+    assert sender.last_code(ADDRESS) == CODE
+
+
+async def test_the_retry_only_gets_what_is_left_of_the_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The first attempt fails late, so the second has little time; together they never
+    # take longer than the budget.
+    monkeypatch.setattr("app.core.email.SEND_BUDGET_SECONDS", 0.2)
+    attempts = 0
+
+    class FailsLateThenHangs:
+        async def send(self, message: EmailMessage) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                await asyncio.sleep(0.15)
+                raise EmailDeliveryError("SMTPServerDisconnected")
+            await asyncio.sleep(1)
+
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    with pytest.raises(EmailNotSent):
+        await send_code(FailsLateThenHangs(), to=ADDRESS, code=CODE, purpose=CodePurpose.LOGIN)
+
     assert attempts == 2
+    assert loop.time() - started < 0.5
 
 
 async def test_failures_never_log_the_address_or_code(caplog: pytest.LogCaptureFixture) -> None:
