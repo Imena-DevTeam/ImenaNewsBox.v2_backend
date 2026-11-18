@@ -18,7 +18,10 @@ from enum import StrEnum
 from http import HTTPStatus
 from typing import Final, Protocol
 
-import aiosmtplib
+try:
+    import aiosmtplib
+except ModuleNotFoundError:  # Allow non-SMTP code to load when the optional dependency is absent.
+    aiosmtplib = None
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
@@ -89,6 +92,8 @@ class SmtpEmailSender:
 
     async def send(self, message: EmailMessage) -> None:
         settings = self._settings
+        if aiosmtplib is None:
+            raise EmailDeliveryError("SMTP dependency is unavailable")
         try:
             mail = MimeMessage()
             mail["From"] = settings.email_from
