@@ -1,10 +1,13 @@
 name: CI
 
-# Lint, format check, type check and tests on every PR to main. Malware Guard runs separately.
+# Validate PRs and main; deployment is opt-in through the production environment.
 
 on:
   pull_request:
     branches: [ "main" ]
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,6 +16,7 @@ jobs:
   validate-and-test:
     name: Lint and test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     services:
       postgres:
@@ -41,6 +45,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check repository guard
+        run: bash .github/scripts/malware-guard.sh
+
+      - name: Check deployment script and Compose definition
+        run: |
+          bash -n scripts/deploy.sh
+          cp .env.example "$RUNNER_TEMP/imena-ci.env"
+          IMENA_ENV_FILE="$RUNNER_TEMP/imena-ci.env" docker compose --env-file "$RUNNER_TEMP/imena-ci.env" -f compose.production.yml config --quiet
 
       # Installs uv and the Python version from .python-version.
       - name: Install uv
@@ -70,3 +85,78 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+      - name: Build production image
+        run: docker build --target prod --tag imena-newsbox:ci .
+
+  deploy:
+    name: Deploy to VPS
+    needs: validate-and-test
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    concurrency:
+      group: imena-newsbox-production
+      cancel-in-progress: false
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ -n "$SSH_PRIVATE_KEY" && -n "$SSH_KNOWN_HOSTS" ]]
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Upload tested source and deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [[ "$latest" != "$GITHUB_SHA" ]]; then
+            echo "A newer commit is on main; refusing to deploy this older run."
+            exit 1
+          fi
+          archive="imena-${GITHUB_SHA}.tar.gz"
+          git archive --format=tar.gz --output="$RUNNER_TEMP/$archive" HEAD
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -P "$DEPLOY_PORT" "$RUNNER_TEMP/$archive" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/$archive"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          sha=$1
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]]
+          root=/opt/imena-newsbox
+          release="$root/releases/$sha"
+          archive="/tmp/imena-$sha.tar.gz"
+          mkdir -p "$release"
+          tar -xzf "$archive" -C "$release"
+          IMENA_ENV_FILE="$root/shared/.env" IMENA_IMAGE_TAG="$sha" bash "$release/scripts/deploy.sh"
+          ln -sfn "$release" "$root/current"
+          rm -f -- "$archive"
+          REMOTE
+
+      - name: Remove SSH private key
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519
