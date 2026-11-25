@@ -89,6 +89,8 @@ class SmtpEmailSender:
 
     async def send(self, message: EmailMessage) -> None:
         settings = self._settings
+        if aiosmtplib is None:
+            raise EmailDeliveryError("SMTP dependency is unavailable")
         try:
             mail = MimeMessage()
             mail["From"] = settings.email_from
