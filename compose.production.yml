@@ -1,0 +1,31 @@
+# Standalone production definition. Do not merge with docker-compose.yml.
+name: imena-newsbox-prod
+
+services:
+  api:
+    image: imena-newsbox:${IMENA_IMAGE_TAG:-local}
+    build:
+      context: .
+      target: prod
+    env_file:
+      - ${IMENA_ENV_FILE:-.env}
+    environment:
+      ENVIRONMENT: production
+    # The Dockerfile runs migrations before starting one Uvicorn instance.
+    # Only the host's reverse proxy can reach this port.
+    ports:
+      - "127.0.0.1:${API_PORT:-8010}:8000"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

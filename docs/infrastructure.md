@@ -1,5 +1,9 @@
 # Infrastructure
 
+For Docker deployment to the VPS at `5.252.53.111`, see
+[VPS deployment](vps-deployment.md), including server setup and opt-in CI/CD.
+The historical Render details below are retained for reference.
+
 > **Being updated:** the backend now deploys with **Docker on a VPS** instead of Render (decision 69), and email is plain SMTP (decision 68). The rest of this page still describes the Render setup until the team settles the VPS details.
 
 ## The free-tier rule
